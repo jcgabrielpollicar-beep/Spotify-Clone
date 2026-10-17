@@ -16,6 +16,7 @@
     </div>
 
     <div class="actions">
+      {% include "music/_play_all.html" %}
       <a class="btn" href="{% url 'track_create' album.pk %}" data-track-form>Add track</a>
       <a class="btn secondary" href="{% url 'album_update' album.pk %}">Edit album</a>
       <a class="btn secondary" href="{% url 'album_delete' album.pk %}" data-confirm-delete data-name="{{ album.title }}" data-warning="All tracks on this album will be deleted too.">Delete album</a>

@@ -20,9 +20,12 @@
       </div>
     </div>
 
-    {% if can_edit_playlist %}
+    {% if can_edit_playlist or tracks %}
     <div class="actions">
+      {% include "music/_play_all.html" %}
+      {% if can_edit_playlist %}
       <a class="btn secondary" href="{% url 'playlist_update' playlist.pk %}">Edit playlist</a>
+      {% endif %}
       {% if is_owner %}
         <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
         {# invite a partner: sits in the same row as the buttons #}

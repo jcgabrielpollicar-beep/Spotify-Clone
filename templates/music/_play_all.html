@@ -1,0 +1,7 @@
+{# The big round Play button at the top of an album / playlist / Liked Songs page: plays the page's whole tracklist (static/js/player.js, data-play-all). #}
+{% if tracks %}
+<button class="play-all" type="button" data-play-all aria-label="Play all" aria-pressed="false" title="Play all">
+  <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+  <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4.5" height="16" rx="1.2"/><rect x="14" y="4" width="4.5" height="16" rx="1.2"/></svg>
+</button>
+{% endif %}

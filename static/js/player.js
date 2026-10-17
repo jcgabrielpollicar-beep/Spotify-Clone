@@ -306,9 +306,25 @@
     return t ? document.querySelector('.trk[data-id="' + t.id + '"], .rc[data-id="' + t.id + '"]') : null;
   }
 
+  function syncPlayAll(t, playing) {
+    var buttons = document.querySelectorAll('[data-play-all]');
+    if (!buttons.length) return;
+    var rows = pageRows();
+    var inList = !!t && rows.some(function (r) { return r.dataset.id === t.id; });
+    var on = inList && playing;
+    Array.prototype.forEach.call(buttons, function (b) {
+      b.disabled = !rows.length;                                     // none of the songs here has an audio file
+      b.title = rows.length ? (on ? 'Pause' : 'Play all') : 'No audio files to play yet';
+      b.classList.toggle('is-playing', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? 'Pause' : 'Play all');
+    });
+  }
+
   function syncRows() {
     var t = current();
     var playing = !audio.paused && !audio.ended;
+    syncPlayAll(t, playing);
     Array.prototype.forEach.call(document.querySelectorAll('.trk, .rc'), function (row) {
       var mine = !!t && row.dataset.id === t.id && !!row.dataset.src;
       row.classList.toggle('is-active', mine);
@@ -363,6 +379,24 @@
     if (!row || !row.dataset.src) return;
     if (current() && current().id === row.dataset.id) toggle();
     else startFromRow(row);
+  });
+
+  // the big Play button on album / playlist / Liked Songs pages: starts the page's tracklist (a random song while shuffle is on),
+  // or pauses / resumes it when a song from this list is already the current one
+  function pageRows() {
+    var list = document.querySelector('main .track-list');
+    return list ? Array.prototype.slice.call(list.querySelectorAll('.trk[data-src]')) : [];
+  }
+
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-play-all]');
+    if (!button || button.disabled) return;
+    var rows = pageRows();
+    if (!rows.length) return;
+    var now = current();
+    var inList = !!now && rows.some(function (r) { return r.dataset.id === now.id; });
+    if (inList) toggle();
+    else startFromRow(shuffle ? rows[Math.floor(Math.random() * rows.length)] : rows[0]);
   });
 
   $('np-play').addEventListener('click', toggle);

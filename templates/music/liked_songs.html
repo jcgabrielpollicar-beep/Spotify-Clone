@@ -16,6 +16,8 @@
         <div>{{ tracks|length }} song{{ tracks|length|pluralize }}</div>
       </div>
     </div>
+
+    {% if tracks %}<div class="actions">{% include "music/_play_all.html" %}</div>{% endif %}
   </div>
 
   <div class="detail-scroll">

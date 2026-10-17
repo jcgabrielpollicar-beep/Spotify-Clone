@@ -614,6 +614,34 @@ class RecentRowsTests(BaseTestCase):
         self.assertEqual(albums[0], newer)
 
 
+class PlayAllButtonTests(BaseTestCase):
+    """The big Play button on album, playlist and Liked Songs pages (static/js/player.js starts the whole list)."""
+
+    def setUp(self):
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        Like.objects.create(user=self.alice, track=self.track)
+        self.empty_playlist = Playlist.objects.create(owner=self.alice, name='Empty one')
+        self.login()
+
+    def test_album_playlist_and_liked_pages_have_it(self):
+        for url in (self.album.get_absolute_url(), self.playlist.get_absolute_url(), reverse('liked_songs')):
+            self.assertContains(self.client.get(url), 'data-play-all', msg_prefix=url)
+
+    def test_it_sits_in_the_actions_row_for_a_playlist_you_cannot_edit(self):
+        other = Playlist.objects.create(owner=self.bob, name='Bobs')
+        PlaylistTrack.objects.create(playlist=other, track=self.track)
+        html = self.client.get(other.get_absolute_url()).content.decode()
+        self.assertIn('data-play-all', html)
+        self.assertNotIn('Edit playlist', html)
+
+    def test_no_button_when_there_is_nothing_to_play(self):
+        empty_album = Album.objects.create(title='Empty LP', artist=self.artist, release_date=datetime.date(2020, 1, 1))
+        for url in (empty_album.get_absolute_url(), self.empty_playlist.get_absolute_url()):
+            self.assertNotContains(self.client.get(url), 'data-play-all', msg_prefix=url)
+        Like.objects.all().delete()
+        self.assertNotContains(self.client.get(reverse('liked_songs')), 'data-play-all')
+
+
 class DeleteNoticeTests(BaseTestCase):
     """Deleting something leaves a message, which toast.js shows as a popup bubble on the next page."""
 
