@@ -74,30 +74,44 @@
 
     // ---- picking an artist
     var picks = 0;
+    var autoBio = '';                    // the bio this box filled in last: a new pick may replace it, never text you typed yourself
+
+    function same(a, b) { return String(a).replace(/\r\n/g, '\n').trim() === String(b).replace(/\r\n/g, '\n').trim(); }
+
     function fillArtist(a) {
       var mine = ++picks;
       setValue('name', a.name);
       useImage(a.image, 'Photo from Spotify');
       var bio = field('bio');
+      var source = field('bio_source');
       var genres = a.genres.length ? 'Genres: ' + a.genres.slice(0, 4).join(', ') + '.' : '';
       var done = 'Filled in from Spotify. Change anything you like, then press Save.';
-      if (!bio || bio.value.trim()) { say(done); return; }            // never overwrite a bio you already typed
-      if (!box.dataset.bioUrl) { if (genres) setValue('bio', genres); say(done); return; }
+
+      // the bio box is free to use when it is empty, or still holds exactly what an earlier pick put there
+      var replaceable = bio && (!bio.value.trim() || (autoBio && same(bio.value, autoBio)));
+      if (!replaceable) { say(done + ' Your own bio was kept.'); return; }
+      if (bio.value) setValue('bio', '');                              // the previous artist's bio must not linger under the new name
+      if (source) source.value = '';
+      autoBio = '';
+
+      function put(text, credit) {
+        setValue('bio', text);
+        autoBio = text;
+        if (source) source.value = credit || '';                      // shown as a small credit under the bio on the artist page
+      }
+
+      if (!box.dataset.bioUrl) { if (genres) put(genres, ''); say(done); return; }
       say('Filled in from Spotify. Looking for a bio on Wikipedia…');
       fetch(box.dataset.bioUrl + '?name=' + encodeURIComponent(a.name), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (mine !== picks || bio.value.trim()) return;               // picked someone else, or you started typing
-          if (data.bio) {
-            setValue('bio', data.bio);
-            var source = field('bio_source');
-            if (source) source.value = data.source || '';           // shown as a small credit under the bio on the artist page
-            say('Filled in from Spotify, with a bio from Wikipedia. Change anything you like, then press Save.');
-          } else { if (genres) setValue('bio', genres); say('Filled in from Spotify. No Wikipedia bio was found, so write one if you like, then press Save.'); }
+          if (mine !== picks || bio.value.trim()) return;               // picked someone else meanwhile, or you started typing
+          if (data.bio) { put(data.bio, data.source); say('Filled in from Spotify, with a bio from Wikipedia. Change anything you like, then press Save.'); }
+          else { if (genres) put(genres, ''); say('Filled in from Spotify. No Wikipedia bio was found, so write one if you like, then press Save.'); }
         })
         .catch(function () {
           if (mine !== picks || bio.value.trim()) return;
-          if (genres) setValue('bio', genres);
+          if (genres) put(genres, '');
           say('Filled in from Spotify. The bio lookup didn’t work, so write one if you like, then press Save.');
         });
     }

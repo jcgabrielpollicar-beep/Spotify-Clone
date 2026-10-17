@@ -32,6 +32,11 @@
   {{ form.audio_file }}
 </div>
 
+<div class="upload-progress" id="track-progress" role="status" aria-live="polite" hidden>
+  <div class="upload-bar"><span id="track-progress-fill"></span></div>
+  <p class="upload-text muted" id="track-progress-text"></p>
+</div>
+
 <div class="confirm-actions">
   <button class="btn secondary" type="button" data-dialog-close>Cancel</button>
   <button class="btn" type="submit" id="track-save">Save</button>
