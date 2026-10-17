@@ -236,9 +236,30 @@
     document.title = (audio.paused ? '' : '▶ ') + t.title + ' · ' + t.artist;
 
     if ('mediaSession' in navigator && window.MediaMetadata) {
-      var artwork = t.cover ? [{ src: new URL(t.cover, window.location.href).href }] : [];
-      navigator.mediaSession.metadata = new window.MediaMetadata({ title: t.title, artist: t.artist, album: t.album, artwork: artwork });
+      // the lock screen picks the picture whose size suits it best; the covers are square
+      var artwork = t.cover ? ['96x96', '256x256', '512x512'].map(function (size) { return { src: new URL(t.cover, window.location.href).href, sizes: size }; }) : [];
+      try { navigator.mediaSession.metadata = new window.MediaMetadata({ title: t.title, artist: t.artist, album: t.album, artwork: artwork }); } catch (e) { /* the title still shows in the bar */ }
     }
+  }
+
+  // ---- what the phone's lock screen / notification shows: play or pause, and the seek bar
+  var lastPositionPush = 0;
+  function updateSession(force) {
+    if (!('mediaSession' in navigator)) return;
+    var ms = navigator.mediaSession;
+    try { ms.playbackState = !current() ? 'none' : (!audio.paused && !audio.ended ? 'playing' : 'paused'); } catch (e) { /* not supported */ }
+    if (!ms.setPositionState) return;
+    var now = Date.now();
+    if (!force && now - lastPositionPush < 1000) return;              // once a second is plenty
+    lastPositionPush = now;
+    var total = audio.duration;
+    try {
+      if (isFinite(total) && total > 0) {
+        ms.setPositionState({ duration: total, playbackRate: audio.playbackRate || 1, position: Math.min(audio.currentTime || 0, total) });
+      } else {
+        ms.setPositionState();                                        // length not known yet: no seek bar
+      }
+    } catch (e) { /* not supported */ }
   }
 
   function render() {
@@ -270,6 +291,7 @@
 
     if (t) document.title = (playing ? '▶ ' : '') + t.title + ' · ' + t.artist;
     syncRows();
+    updateSession(false);
   }
 
   function showError() {
@@ -322,11 +344,13 @@
   audio.addEventListener('pause', function () { render(); save(true); });
   audio.addEventListener('ended', function () { next(true); });
   audio.addEventListener('timeupdate', function () { countListening(); render(); save(false); });
-  audio.addEventListener('durationchange', render);
+  audio.addEventListener('durationchange', function () { render(); updateSession(true); });
+  audio.addEventListener('seeked', function () { updateSession(true); });                // the lock screen's bar follows a jump at once
   audio.addEventListener('loadedmetadata', function () {
     if (pendingSeek > 0 && isFinite(audio.duration)) { audio.currentTime = Math.min(pendingSeek, audio.duration); }
     pendingSeek = 0;
     render();
+    updateSession(true);
   });
   audio.addEventListener('error', function () { if (current()) showError(); });
   window.addEventListener('pagehide', function () { save(true); });
@@ -451,10 +475,23 @@
   // ---- keyboard / lock-screen / headphone buttons
   if ('mediaSession' in navigator) {
     var set = function (name, handler) { try { navigator.mediaSession.setActionHandler(name, handler); } catch (e) { /* not supported */ } };
-    set('play', toggle);
-    set('pause', toggle);
+    set('play', function () { if (current() && audio.paused) toggle(); });           // play / pause do what they say, never the opposite
+    set('pause', function () { if (!audio.paused) toggle(); });
+    set('stop', function () { if (!audio.paused) toggle(); });
     set('previoustrack', previous);
     set('nexttrack', function () { next(false); });
+    function jump(seconds) {
+      if (!current()) return;
+      var total = trackLength();
+      audio.currentTime = Math.max(0, Math.min((audio.currentTime || 0) + seconds, total ? total - 0.05 : Infinity));
+    }
+    set('seekbackward', function (details) { jump(-((details && details.seekOffset) || 10)); });
+    set('seekforward', function (details) { jump((details && details.seekOffset) || 10); });
+    set('seekto', function (details) {                                                 // dragging the lock screen's bar
+      if (!current() || !details || typeof details.seekTime !== 'number') return;
+      var total = trackLength();
+      audio.currentTime = Math.max(0, Math.min(details.seekTime, total ? total - 0.05 : details.seekTime));
+    });
   }
 
   restore();

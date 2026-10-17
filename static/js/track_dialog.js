@@ -5,6 +5,53 @@
 (function () {
   'use strict';
 
+  // ---- choosing an audio file fills in the Duration by itself (the popup and the full-page form alike).
+  // The browser reads the length from the file on this computer; nothing is uploaded for that.
+  function clock(totalSeconds) {
+    var s = Math.max(0, Math.round(totalSeconds));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, '0');
+    return h ? h + ':' + String(m).padStart(2, '0') + ':' + sec : m + ':' + sec;
+  }
+
+  function durationNote(field, text) {
+    var holder = field.closest('.field') || field.parentElement;
+    var note = holder.querySelector('.duration-note');
+    if (!text) { if (note) note.remove(); return; }
+    if (!note) {
+      note = document.createElement('small');
+      note.className = 'helptext duration-note';
+      var hint = holder.querySelector('.helptext');
+      if (hint) hint.insertAdjacentElement('afterend', note); else holder.appendChild(note);
+    }
+    note.textContent = text;
+  }
+
+  document.addEventListener('change', function (event) {
+    var input = event.target;
+    if (!input.matches || !input.matches('input[type=file][name=audio_file]')) return;
+    var field = input.form && input.form.querySelector('[name=duration]');
+    var file = input.files && input.files[0];
+    if (!field || !file || !window.URL || !window.Audio) return;
+    var url = URL.createObjectURL(file);
+    var probe = new Audio();
+    function cleanUp() { probe.removeAttribute('src'); URL.revokeObjectURL(url); }
+    probe.preload = 'metadata';
+    probe.addEventListener('loadedmetadata', function () {
+      if (isFinite(probe.duration) && probe.duration > 0 && input.files[0] === file) {   // still the file that was picked
+        field.value = clock(probe.duration);
+        durationNote(field, 'Taken from the audio file. You can still change it.');
+      }
+      cleanUp();
+    });
+    probe.addEventListener('error', cleanUp);                          // unreadable file: leave the field as it is
+    probe.src = url;
+  });
+
+  document.addEventListener('input', function (event) {               // typing by hand replaces the automatic value
+    var field = event.target;
+    if (field.matches && field.matches('input[name=duration]')) durationNote(field, '');
+  });
+
   var dialog = document.getElementById('track-dialog');
   if (!dialog || typeof dialog.showModal !== 'function') return;
 
