@@ -1,6 +1,7 @@
 import re
 
 from django import forms
+from django.urls import reverse
 
 from . import spotify
 from .models import Album, Artist, Playlist, Track
@@ -24,7 +25,32 @@ class ArtistForm(SpotifyPictureMixin, forms.ModelForm):
 
     class Meta:
         model = Artist
-        fields = ['name', 'bio', 'image']
+        fields = ['name', 'bio', 'bio_source', 'image']
+        widgets = {'bio_source': forms.HiddenInput}
+
+    def clean_bio_source(self):
+        """Only a Wikipedia address is accepted here (it comes from the Spotify box), and only while there is a bio."""
+        url = self.cleaned_data.get('bio_source', '').strip()
+        return url if url.startswith('https://en.wikipedia.org/wiki/') else ''
+
+    def clean(self):
+        cleaned = super().clean()
+        if not (cleaned.get('bio') or '').strip():
+            cleaned['bio_source'] = ''                       # no bio left, so nothing to credit
+        return cleaned
+
+
+class ArtistSelect(forms.Select):
+    """The Artist dropdown of the album form. Each option carries the artist's photo address so the page script
+    (static/js/artist_picker.js) can show a nicer picker with pictures and a search box; without JavaScript it is
+    still an ordinary dropdown."""
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        instance = getattr(value, 'instance', None)
+        if instance is not None and instance.image:
+            option['attrs']['data-image'] = instance.image.url
+        return option
 
 
 class AlbumForm(SpotifyPictureMixin, forms.ModelForm):
@@ -35,7 +61,14 @@ class AlbumForm(SpotifyPictureMixin, forms.ModelForm):
     class Meta:
         model = Album
         fields = ['title', 'artist', 'cover', 'release_date']
-        widgets = {'release_date': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d')}
+        widgets = {
+            'artist': ArtistSelect(attrs={'data-artist-picker': ''}),
+            'release_date': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['artist'].widget.attrs['data-new-url'] = reverse('artist_create')    # the picker's "+ New artist" link
 
     def clean_spotify_album_id(self):
         value = self.cleaned_data.get('spotify_album_id', '').strip()

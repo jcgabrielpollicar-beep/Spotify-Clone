@@ -56,6 +56,8 @@ class Artist(AccentColorMixin):
     accent_source = 'image'
     name = models.CharField(max_length=200)
     bio = models.TextField(blank=True)
+    bio_source = models.URLField(max_length=300, blank=True,
+                                help_text='Where the bio came from (a Wikipedia page); shown as a small credit under the bio.')
     image = models.ImageField(upload_to='artists/', blank=True)
 
     class Meta:

@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Pacifico&display=swap" rel="stylesheet">
+  <script>document.documentElement.classList.add('js');</script>{# lets the stylesheet hide the plain message list, since toast.js shows it as popup bubbles #}
   <link rel="stylesheet" href="{% asset 'css/style.css' %}">
 </head>
 <body class="{% block body_class %}{% endblock %}" style="{% block body_style %}{% endblock %}">
@@ -143,6 +144,7 @@
   </dialog>
   <script src="{% asset 'js/track_dialog.js' %}" defer></script>
   {% endif %}
+  <script src="{% asset 'js/toast.js' %}" defer></script>
   <script src="{% asset 'js/player.js' %}" defer></script>
   {% if user.is_authenticated %}
   <script src="{% asset 'js/suggest.js' %}" defer></script>

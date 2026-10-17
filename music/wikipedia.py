@@ -1,8 +1,8 @@
 """Looks up a short artist biography on Wikipedia for the "Fill in from Spotify" box on the New artist form.
 
 Spotify itself has no biographies, so this asks Wikipedia (free, no key needed) for the first few sentences of the
-artist's page. Wikipedia's text is licensed CC BY-SA 4.0, so the bio that is filled in always ends with a line
-naming Wikipedia and linking to the page. To avoid pasting the wrong person's page, a page is only used when
+artist's page. Wikipedia's text is licensed CC BY-SA 4.0, so the page's address is saved with the artist
+(Artist.bio_source) and shown as a small credit line under the bio. To avoid pasting the wrong person's page, a page is only used when
 its title matches the artist's name and its intro reads like a musician or band.
 """
 import json
@@ -102,8 +102,3 @@ def artist_bio(name):
 
     cache.set(key, result or '', CACHE_SECONDS)
     return result
-
-
-def with_credit(found):
-    """The bio text as it is put into the form: the intro plus the CC BY-SA credit line."""
-    return f"{found['bio']}\n\nSource: Wikipedia ({found['url']}), CC BY-SA 4.0."

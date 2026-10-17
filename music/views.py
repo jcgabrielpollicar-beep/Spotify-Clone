@@ -1,4 +1,5 @@
 import datetime
+from urllib.parse import urlparse
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -47,6 +48,31 @@ class TrackListContextMixin:
 
 class FormPage(LoginRequiredMixin):
     template_name = 'music/form.html'
+
+
+class CancelLinkMixin:
+    """The Cancel button of a "new ..." form goes back to the page the form was opened from (the albums page, an
+    artist's page, the home page ...), not always to the same place. The page comes from a hidden `next` value
+    (kept when the form is shown again after an error), a `?next=` link, or the browser's Referer; only pages of
+    this site are accepted. With none of those, `cancel_fallback` is used."""
+    cancel_fallback = 'home'
+
+    def get_cancel_url(self):
+        request = self.request
+        for candidate in (request.POST.get('next'), request.GET.get('next'), request.META.get('HTTP_REFERER')):
+            if not candidate or not url_has_allowed_host_and_scheme(
+                    candidate, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+                continue
+            parsed = urlparse(candidate)
+            if parsed.path == request.path:             # the form itself (e.g. after a mistake): not a place to go back to
+                continue
+            return parsed.path + (f'?{parsed.query}' if parsed.query else '')
+        return reverse(self.cancel_fallback)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['cancel_url'] = self.get_cancel_url()
+        return context
 
 
 class ConfirmDeletePage(LoginRequiredMixin):
@@ -232,7 +258,8 @@ def _import_picture(request, form, instance, field_name, stem):
         messages.warning(request, f'Saved, but the Spotify picture could not be added ({error}). You can upload one by editing it.')
 
 
-class ArtistCreate(FormPage, CreateView):
+class ArtistCreate(CancelLinkMixin, FormPage, CreateView):
+    cancel_fallback = 'artist_list'
     model = Artist
     form_class = ArtistForm
     template_name = 'music/artist_form.html'  # centered card with a live preview
@@ -288,7 +315,8 @@ class AlbumDetail(LoginRequiredMixin, TrackListContextMixin, DetailView):
         return context
 
 
-class AlbumCreate(FormPage, CreateView):
+class AlbumCreate(CancelLinkMixin, FormPage, CreateView):
+    cancel_fallback = 'album_list'
     model = Album
     form_class = AlbumForm
     template_name = 'music/album_form.html'  # centered card with a live preview
@@ -467,7 +495,8 @@ class PlaylistDetail(LoginRequiredMixin, TrackListContextMixin, DetailView):
         return context
 
 
-class PlaylistCreate(FormPage, CreateView):
+class PlaylistCreate(CancelLinkMixin, FormPage, CreateView):
+    cancel_fallback = 'playlist_list'
     model = Playlist
     form_class = PlaylistForm
     template_name = 'music/playlist_form.html'  # centered card, same look as the artist / album forms
@@ -647,8 +676,9 @@ def artist_bio(request):
     Answers {"bio": "..."} or {"bio": ""} when no suitable page exists; never an error page."""
     found = wikipedia.artist_bio(request.GET.get('name', ''))
     if not found:
-        return JsonResponse({'bio': ''})
-    return JsonResponse({'bio': wikipedia.with_credit(found), 'title': found['title'], 'url': found['url']})
+        return JsonResponse({'bio': '', 'source': ''})
+    # the text and its source are kept apart: the page shows a small "Bio from Wikipedia" credit under the bio
+    return JsonResponse({'bio': found['bio'], 'source': found['url'], 'title': found['title']})
 
 
 @login_required

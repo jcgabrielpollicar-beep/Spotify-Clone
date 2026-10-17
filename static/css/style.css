@@ -306,6 +306,60 @@ dialog.confirm.form-dialog { width: min(460px, calc(100vw - 2rem)); max-height: 
 .editor-actions { display: flex; gap: .6rem; margin-top: auto; padding-top: 1.5rem; }  /* buttons stay at the bottom when the card is stretched */
 .editor-actions .btn { flex: 1 1 auto; text-align: center; white-space: nowrap; padding-left: .75rem; padding-right: .75rem; }
 
+/* artist picker on the album form (static/js/artist_picker.js): the real <select> is hidden behind it */
+.ap { position: relative; }
+.ap-native { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.ap-button {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: .35rem .8rem .35rem .45rem;
+  background: #262626;
+  border: 1px solid #333;
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ap-button:hover { background: #2d2d2d; }
+.ap-button:focus-visible, .ap-button[aria-expanded="true"] { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(29, 185, 84, .2); }
+.ap-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ap-label.is-empty { color: var(--muted); font-weight: 400; }
+.ap-chevron { color: var(--muted); transition: transform .15s; }
+.ap-button[aria-expanded="true"] .ap-chevron { transform: rotate(180deg); }
+.ap-pic { flex: none; width: 30px; height: 30px; border-radius: 50%; overflow: hidden; background: linear-gradient(135deg, #2a6b49, #1db954); color: #fff; font-size: .8rem; font-weight: 800; display: grid; place-items: center; }
+.ap-pic img { width: 100%; height: 100%; object-fit: cover; }
+.ap-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 300px;                              /* wider than the half-width field, so names are not cut off */
+  min-width: 100%;
+  max-width: calc(100vw - 2rem);
+  z-index: 50;
+  background: #1f1f1f;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .6);
+  padding: .45rem;
+  animation: pl-in .12s ease;
+}
+.ap-search { width: 100%; margin-bottom: .35rem; padding: .5rem .9rem; border-radius: 999px; background: #2a2a2a; border: 1px solid #383838; color: var(--text); font: inherit; font-size: .92rem; }
+.ap-list { max-height: 260px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+.ap-item { display: flex; align-items: center; gap: .65rem; width: 100%; padding: .4rem .5rem; border: 0; border-radius: 10px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ap-item:hover, .ap-item.is-active { background: rgba(255, 255, 255, .09); }
+.ap-item.is-selected .ap-name { color: #5bf08c; font-weight: 700; }
+.ap-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-tick { flex: none; color: var(--green); font-weight: 700; visibility: hidden; }
+.ap-item.is-selected .ap-tick { visibility: visible; }
+.ap-empty { margin: .6rem .5rem; color: var(--muted); font-size: .9rem; }
+.ap-new { display: block; margin-top: .3rem; padding: .6rem .55rem .35rem; border-top: 1px solid #343434; color: var(--green); font-weight: 600; font-size: .9rem; }
+.ap-new:hover { color: #1ed760; }
+
 /* "Fill in from Spotify" box at the top of the New artist / New album forms (static/js/spotify_import.js) */
 .sp-search { position: relative; margin-bottom: 1.25rem; padding-bottom: 1.1rem; border-bottom: 1px solid #2c2c2c; }
 .sp-label { display: block; margin-bottom: .35rem; font-weight: 600; color: var(--green); }
@@ -527,6 +581,14 @@ body.home-page {
 .avatar-small { width: 96px; height: 96px; font-size: 2.4rem; box-shadow: none; }
 .avatar-edit { display: flex; align-items: center; gap: 1.1rem; margin-bottom: 1rem; }
 .avatar-edit .field { flex: 1; min-width: 0; margin: 0; }
+/* artist "About": a few lines, "See more" opens the rest */
+.bio-text { margin: 0 0 .35rem; max-width: 75ch; overflow-wrap: anywhere; }
+.bio-text.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.bio-more { border: 0; background: none; padding: 0; color: #fff; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.bio-more:hover { color: var(--green); }
+.bio-credit { margin: .5rem 0 0; font-size: .78rem; color: rgba(255, 255, 255, .6); }
+.bio-credit a { color: inherit; text-decoration: underline; }
+.bio-credit a:hover { color: #fff; }
 .profile-meta { font-size: .92rem; color: rgba(255, 255, 255, .78); }
 .profile-meta a { color: #fff; }
 .profile-meta a:hover { text-decoration: underline; }
@@ -1012,32 +1074,53 @@ body.has-player { padding-bottom: var(--np-h); --np-bar: var(--np-h); }
 .partner-chip .trk-link { padding-right: .5rem; }
 .partner-x { width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .35); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; }
 .partner-x:hover { background: var(--red); }
-.partner-add { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: 0 0 .4rem; }
-.partner-add input { flex: 1 1 220px; max-width: 320px; border-radius: 999px; padding: .5rem 1rem; background: rgba(0, 0, 0, .35); border-color: rgba(255, 255, 255, .15); }
+.partner-add { display: flex; align-items: center; gap: .6rem; margin: 0; }              /* in the Edit / Delete button row */
+.partner-add input { width: 230px; max-width: 100%; border-radius: 999px; padding: .5rem 1rem; background: rgba(0, 0, 0, .35); border-color: rgba(255, 255, 255, .15); }
+@media (max-width: 700px) { .detail-head .actions .partner-add { flex: 1 1 100%; } .partner-add input { flex: 1; width: auto; } }
 .partner-note { margin: .25rem 0 0; font-size: .85rem; }
 .pl-new { display: block; margin-top: .25rem; padding: .6rem .6rem .5rem; border-top: 1px solid #343434; color: var(--green); font-size: .9rem; font-weight: 600; }
 .pl-new:hover { color: #1ed760; }
 
-/* small confirmation message above the Now playing bar */
-.toast {
+/* notifications: popup bubbles above the Now playing bar (static/js/toast.js). With JavaScript the plain message
+   list in the page is hidden (the <html> element gets the "js" class in base.html) and shown as bubbles instead. */
+.js ul.messages { display: none; }
+.toasts {
   position: fixed;
   left: 50%;
   bottom: calc(var(--np-bar, 0px) + 1rem);
+  transform: translateX(-50%);
   z-index: 80;
-  max-width: min(92vw, 420px);
-  padding: .65rem 1.1rem;
+  width: max-content;
+  max-width: min(92vw, 440px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  pointer-events: none;                           /* only the bubbles themselves react to clicks */
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .65rem 1.15rem .65rem .95rem;
   border-radius: 999px;
   background: #fff;
   color: #000;
-  font-size: .9rem;
+  font-size: .92rem;
   font-weight: 600;
+  line-height: 1.3;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
   opacity: 0;
-  transform: translate(-50%, 8px);
-  pointer-events: none;
-  transition: opacity .2s, transform .2s;
+  transform: translateY(10px) scale(.97);
+  transition: opacity .22s ease, transform .22s ease;
+  pointer-events: auto;
+  cursor: pointer;
 }
-.toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+.toast::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; background: #8a8a8a; }
+.toast-success::before { background: var(--green); }
+.toast-error::before { background: var(--red); }
+.toast-warning::before { background: #f5a524; }
+.toast.is-on { opacity: 1; transform: none; }
 .trk-link { background: none; border: 0; padding: 0; font: inherit; font-size: .88rem; color: var(--muted); cursor: pointer; }
 .trk-link:hover { color: var(--text); }
 .trk-link.trk-danger:hover { color: var(--red); }

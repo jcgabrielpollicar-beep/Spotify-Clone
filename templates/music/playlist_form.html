@@ -7,6 +7,7 @@
 
   <form class="editor-card editor-form" method="post">
     {% csrf_token %}
+    {% if not form.instance.pk %}<input type="hidden" name="next" value="{{ cancel_url }}">{% endif %}
     <h1>{{ title }}</h1>
     {{ form.non_field_errors }}
 
@@ -24,7 +25,7 @@
 
     <div class="editor-actions">
       <button class="btn" type="submit">Save</button>
-      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{% url 'playlist_list' %}{% endif %}">Cancel</a>
+      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{{ cancel_url }}{% endif %}">Cancel</a>
     </div>
   </form>
 

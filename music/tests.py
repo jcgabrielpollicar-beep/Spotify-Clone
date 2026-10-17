@@ -897,6 +897,305 @@ class SpotifyFormTests(BaseTestCase):
         album.cover.delete(save=False)
 
 
+class ArtistCrudRequirementTests(BaseTestCase):
+    """Requirement: Artist management (CRUD): create (name, bio, image), list, detail (bio, albums), update, delete."""
+
+    def setUp(self):
+        import tempfile
+        self._media = tempfile.TemporaryDirectory()
+        override = override_settings(MEDIA_ROOT=self._media.name)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.addCleanup(self._media.cleanup)
+        self.login()
+
+    # ---- create
+    def test_create_with_name_bio_and_image(self):
+        response = self.client.post(reverse('artist_create'), {'name': 'Air', 'bio': 'French band.', 'image': _jpeg((200, 60, 60))})
+        artist = Artist.objects.get(name='Air')
+        self.assertRedirects(response, artist.get_absolute_url())
+        self.assertEqual(artist.bio, 'French band.')
+        self.assertTrue(artist.image.name.startswith('artists/'))
+        self.assertTrue(artist.image.storage.exists(artist.image.name))             # the file really was stored
+        self.assertTrue(artist.accent_color.startswith('#'))
+        self.assertContains(self.client.get(artist.get_absolute_url()), artist.image.url)
+
+    def test_bio_and_image_are_optional_but_the_name_is_required(self):
+        self.client.post(reverse('artist_create'), {'name': 'Only A Name', 'bio': ''})
+        artist = Artist.objects.get(name='Only A Name')
+        self.assertEqual((artist.bio, bool(artist.image)), ('', False))
+        response = self.client.post(reverse('artist_create'), {'name': '', 'bio': 'no name'})
+        self.assertContains(response, 'This field is required')
+        self.assertFalse(Artist.objects.filter(bio='no name').exists())
+
+    def test_a_file_that_is_not_an_image_is_refused(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        fake = SimpleUploadedFile('virus.jpg', b'this is not a picture', content_type='image/jpeg')
+        response = self.client.post(reverse('artist_create'), {'name': 'Bad Upload', 'bio': '', 'image': fake})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Artist.objects.filter(name='Bad Upload').exists())
+
+    def test_the_form_has_the_three_fields(self):
+        html = self.client.get(reverse('artist_create')).content.decode()
+        for field in ('name="name"', 'name="bio"', 'name="image"', 'enctype="multipart/form-data"'):
+            self.assertIn(field, html)
+
+    # ---- list
+    def test_the_list_shows_every_artist_with_a_link_and_a_new_artist_button(self):
+        other = Artist.objects.create(name='Justice')
+        response = self.client.get(reverse('artist_list'))
+        for artist in (self.artist, other):
+            self.assertContains(response, artist.name)
+            self.assertContains(response, f'href="{artist.get_absolute_url()}"')
+        self.assertContains(response, reverse('artist_create'))
+
+    def test_an_empty_list_says_so(self):
+        Artist.objects.all().delete()
+        self.assertContains(self.client.get(reverse('artist_list')), 'No artists yet.')
+
+    # ---- detail
+    def test_detail_shows_the_bio_and_only_this_artists_albums(self):
+        other = Artist.objects.create(name='Justice')
+        Album.objects.create(title='Cross', artist=other, release_date=datetime.date(2007, 6, 11))
+        html = self.client.get(self.artist.get_absolute_url()).content.decode()
+        self.assertIn('Daft Punk', html)
+        self.assertIn('French duo', html)                                           # the bio
+        self.assertIn('Discovery', html)                                            # their album ...
+        self.assertIn(f'href="{self.album.get_absolute_url()}"', html)              # ... linking to it
+        self.assertNotIn('Cross', html)                                             # not another artist's
+        for link in (reverse('artist_update', args=[self.artist.pk]), reverse('artist_delete', args=[self.artist.pk])):
+            self.assertIn(link, html)
+
+    def test_detail_of_an_artist_with_no_albums_or_bio_still_works(self):
+        lone = Artist.objects.create(name='Lonely')
+        html = self.client.get(lone.get_absolute_url()).content.decode()
+        self.assertIn('No albums yet.', html)
+        self.assertNotIn('<h2>About</h2>', html)
+        self.assertEqual(self.client.get(reverse('artist_detail', args=[99999])).status_code, 404)
+
+    # ---- update
+    def test_update_changes_the_details_and_keeps_the_image_when_none_is_uploaded(self):
+        self.client.post(reverse('artist_create'), {'name': 'Air', 'bio': 'old', 'image': _jpeg((200, 60, 60))})
+        artist = Artist.objects.get(name='Air')
+        first_image = artist.image.name
+        self.client.post(reverse('artist_update', args=[artist.pk]), {'name': 'AIR (band)', 'bio': 'new bio'})
+        artist.refresh_from_db()
+        self.assertEqual((artist.name, artist.bio, artist.image.name), ('AIR (band)', 'new bio', first_image))
+
+    def test_update_can_replace_or_clear_the_image(self):
+        self.client.post(reverse('artist_create'), {'name': 'Air', 'bio': '', 'image': _jpeg((200, 60, 60))})
+        artist = Artist.objects.get(name='Air')
+        old = artist.image.name
+        self.client.post(reverse('artist_update', args=[artist.pk]), {'name': 'Air', 'bio': '', 'image': _jpeg((60, 60, 200))})
+        artist.refresh_from_db()
+        self.assertNotEqual(artist.image.name, old)                                  # a new picture
+        self.client.post(reverse('artist_update', args=[artist.pk]), {'name': 'Air', 'bio': '', 'image-clear': 'on'})
+        artist.refresh_from_db()
+        self.assertFalse(artist.image)                                               # cleared
+
+    def test_update_refuses_a_blank_name(self):
+        response = self.client.post(reverse('artist_update', args=[self.artist.pk]), {'name': '', 'bio': 'x'})
+        self.assertContains(response, 'This field is required')
+        self.artist.refresh_from_db()
+        self.assertEqual(self.artist.name, 'Daft Punk')
+
+    # ---- delete (with confirmation)
+    def test_delete_asks_for_confirmation_first_and_deletes_only_on_yes(self):
+        page = self.client.get(reverse('artist_delete', args=[self.artist.pk]))
+        self.assertContains(page, 'Delete "Daft Punk"?')                              # the name is in the question
+        self.assertContains(page, 'Yes, delete')
+        self.assertContains(page, 'Cancel')
+        self.assertContains(page, 'albums and tracks will be deleted too')            # warns about what else goes
+        self.assertTrue(Artist.objects.filter(pk=self.artist.pk).exists())            # visiting the page deletes nothing
+        response = self.client.post(reverse('artist_delete', args=[self.artist.pk]))
+        self.assertRedirects(response, reverse('artist_list'))
+        self.assertFalse(Artist.objects.filter(pk=self.artist.pk).exists())
+
+    def test_delete_removes_their_albums_and_tracks_but_nobody_elses(self):
+        other = Artist.objects.create(name='Justice')
+        album = Album.objects.create(title='Cross', artist=other, release_date=datetime.date(2007, 6, 11))
+        Track.objects.create(album=album, title='D.A.N.C.E.', track_number=1, duration=datetime.timedelta(minutes=4))
+        self.client.post(reverse('artist_delete', args=[self.artist.pk]))
+        self.assertEqual(list(Artist.objects.values_list('name', flat=True)), ['Justice'])
+        self.assertEqual(list(Album.objects.values_list('title', flat=True)), ['Cross'])
+        self.assertEqual(list(Track.objects.values_list('title', flat=True)), ['D.A.N.C.E.'])
+
+    def test_the_delete_button_on_the_detail_page_opens_the_popup(self):
+        html = self.client.get(self.artist.get_absolute_url()).content.decode()
+        self.assertIn(f'href="{reverse("artist_delete", args=[self.artist.pk])}" data-confirm-delete data-name="Daft Punk"', html)
+        self.assertIn('<dialog id="confirm-dialog"', html)
+
+    def test_deleting_an_artist_that_does_not_exist_is_a_404(self):
+        self.assertEqual(self.client.post(reverse('artist_delete', args=[99999])).status_code, 404)
+
+
+class ArtistBioDisplayTests(BaseTestCase):
+    """The About text on the artist page: only a short preview with "See more", and the Wikipedia credit kept out of
+    the text (as a small line under it)."""
+
+    def setUp(self):
+        self.login()
+
+    def test_the_bio_is_clamped_with_a_see_more_button(self):
+        html = self.client.get(self.artist.get_absolute_url()).content.decode()
+        self.assertIn('class="bio-text is-clamped"', html)
+        self.assertIn('id="artist-bio-more"', html)
+        self.assertIn('See more', html)
+
+    def test_the_preview_is_two_lines(self):
+        css = (settings.BASE_DIR / 'static' / 'css' / 'style.css').read_text(encoding='utf-8')
+        self.assertIn('-webkit-line-clamp: 2', css.split('.bio-text.is-clamped')[1].split('}')[0])
+
+    def test_the_credit_is_a_separate_small_line_not_part_of_the_bio(self):
+        Artist.objects.filter(pk=self.artist.pk).update(bio='French duo.', bio_source='https://en.wikipedia.org/wiki/Daft_Punk')
+        html = self.client.get(self.artist.get_absolute_url()).content.decode()
+        self.assertIn('French duo.', html)
+        self.assertNotIn('Source: Wikipedia', html)
+        self.assertIn('Bio from <a href="https://en.wikipedia.org/wiki/Daft_Punk"', html)
+        self.assertIn('CC BY-SA 4.0', html)
+
+    def test_no_credit_line_for_a_bio_you_wrote_yourself(self):
+        self.assertNotIn('Bio from', self.client.get(self.artist.get_absolute_url()).content.decode())
+
+    def test_the_credit_is_saved_from_the_form_but_only_for_wikipedia_and_only_with_a_bio(self):
+        wiki = 'https://en.wikipedia.org/wiki/Air_(band)'
+        self.client.post(reverse('artist_create'), {'name': 'Air', 'bio': 'French band.', 'bio_source': wiki})
+        self.assertEqual(Artist.objects.get(name='Air').bio_source, wiki)
+        self.client.post(reverse('artist_create'), {'name': 'Evil', 'bio': 'x', 'bio_source': 'https://evil.example.com/page'})
+        self.assertEqual(Artist.objects.get(name='Evil').bio_source, '')            # not Wikipedia: dropped
+        self.client.post(reverse('artist_create'), {'name': 'Nobio', 'bio': '', 'bio_source': wiki})
+        self.assertEqual(Artist.objects.get(name='Nobio').bio_source, '')           # no bio left: nothing to credit
+
+    def test_editing_keeps_the_credit_through_the_hidden_field(self):
+        wiki = 'https://en.wikipedia.org/wiki/Daft_Punk'
+        Artist.objects.filter(pk=self.artist.pk).update(bio_source=wiki)
+        html = self.client.get(reverse('artist_update', args=[self.artist.pk])).content.decode()
+        self.assertIn(f'name="bio_source" value="{wiki}"', html)
+
+    def test_the_migration_moves_old_credit_lines_out_of_existing_bios(self):
+        from importlib import import_module
+        from django.apps import apps
+        old = 'A band.\n\nSource: Wikipedia (https://en.wikipedia.org/wiki/Ben%26Ben), CC BY-SA 4.0.'
+        artist = Artist.objects.create(name='Ben&Ben', bio=old)
+        import_module('music.migrations.0007_move_wikipedia_credit_out_of_bios').credit_to_its_own_field(apps, None)
+        artist.refresh_from_db()
+        self.assertEqual((artist.bio, artist.bio_source), ('A band.', 'https://en.wikipedia.org/wiki/Ben%26Ben'))
+
+
+class CancelLinkTests(BaseTestCase):
+    """Cancel on a "new ..." form goes back to the page the form was opened from."""
+
+    def setUp(self):
+        self.login()
+
+    def cancel_for(self, url, **headers):
+        response = self.client.get(url, **headers)
+        return response.context['cancel_url']
+
+    def test_from_the_albums_page_it_goes_back_to_the_albums_page(self):
+        self.assertEqual(self.cancel_for(reverse('album_create'), HTTP_REFERER='http://testserver/albums/'), '/albums/')
+
+    def test_from_the_home_page_it_goes_back_home(self):
+        self.assertEqual(self.cancel_for(reverse('album_create'), HTTP_REFERER='http://testserver/'), '/')
+
+    def test_from_an_artist_page_it_goes_back_to_that_artist(self):
+        url = reverse('album_create') + f'?artist={self.artist.pk}'
+        self.assertEqual(self.cancel_for(url, HTTP_REFERER=f'http://testserver{self.artist.get_absolute_url()}'), self.artist.get_absolute_url())
+
+    def test_each_form_has_its_own_fallback_when_there_is_no_referer(self):
+        self.assertEqual(self.cancel_for(reverse('album_create')), reverse('album_list'))
+        self.assertEqual(self.cancel_for(reverse('artist_create')), reverse('artist_list'))
+        self.assertEqual(self.cancel_for(reverse('playlist_create')), reverse('playlist_list'))
+
+    def test_a_referer_from_another_site_is_ignored(self):
+        self.assertEqual(self.cancel_for(reverse('album_create'), HTTP_REFERER='https://evil.example.com/'), reverse('album_list'))
+
+    def test_the_form_itself_is_never_the_cancel_target(self):
+        self.assertEqual(self.cancel_for(reverse('album_create'), HTTP_REFERER='http://testserver/albums/new/'), reverse('album_list'))
+
+    def test_the_cancel_link_and_a_hidden_next_field_are_in_the_page(self):
+        html = self.client.get(reverse('album_create'), HTTP_REFERER='http://testserver/albums/').content.decode()
+        self.assertIn('<input type="hidden" name="next" value="/albums/">', html)
+        self.assertRegex(html, r'href="/albums/">Cancel</a>')
+
+    def test_after_a_mistake_the_form_remembers_where_to_cancel_to(self):
+        response = self.client.post(reverse('album_create'), {'title': '', 'artist': '', 'release_date': '', 'next': '/artists/'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['cancel_url'], '/artists/')
+        self.assertRegex(response.content.decode(), r'href="/artists/">Cancel</a>')
+
+    def test_a_next_value_pointing_at_another_site_is_ignored(self):
+        response = self.client.post(reverse('album_create'), {'title': '', 'artist': '', 'release_date': '', 'next': 'https://evil.example.com/'})
+        self.assertEqual(response.context['cancel_url'], reverse('album_list'))
+
+    def test_edit_forms_still_cancel_to_the_item_itself(self):
+        html = self.client.get(reverse('album_update', args=[self.album.pk])).content.decode()
+        self.assertRegex(html, rf'href="{self.album.get_absolute_url()}">Cancel</a>')
+
+
+class ToastTests(BaseTestCase):
+    """Notifications are popup bubbles that disappear by themselves (static/js/toast.js)."""
+
+    def read(self, *parts):
+        return (settings.BASE_DIR.joinpath(*parts)).read_text(encoding='utf-8')
+
+    def test_every_page_loads_the_toast_script_and_marks_the_page_as_js_capable(self):
+        for url, login in ((reverse('home'), True), (reverse('login'), False)):
+            if login:
+                self.login()
+            else:
+                self.client.logout()
+            html = self.client.get(url).content.decode()
+            self.assertIn("document.documentElement.classList.add('js')", html, url)
+            self.assertIn('js/toast.js', html, url)
+            self.assertLess(html.index('js/toast.js'), html.index('js/player.js') if 'js/player.js' in html else len(html))
+
+    def test_messages_are_still_in_the_page_for_visitors_without_javascript(self):
+        self.login()
+        response = self.client.post(reverse('playlist_partner_add', args=[self.playlist.pk]), {'username': 'nobody-here'}, follow=True)
+        self.assertContains(response, '<ul class="messages">')
+        self.assertContains(response, 'There is no user named')
+        self.assertContains(response, '<li class="error">')              # the kind the bubble is coloured by
+
+    def test_the_bubble_lasts_about_two_seconds_and_errors_a_bit_longer(self):
+        js = self.read('static', 'js', 'toast.js')
+        self.assertIn('DEFAULT_MS = 2200', js)
+        self.assertIn('error: 3800', js)
+        self.assertIn('window.Toast = { show: show, scan: scan }', js)
+
+    def test_the_plain_list_is_hidden_when_javascript_runs_and_bubbles_are_styled(self):
+        css = self.read('static', 'css', 'style.css')
+        self.assertIn('.js ul.messages { display: none; }', css)
+        for rule in ('.toasts {', '.toast-success::before', '.toast-error::before', '.toast.is-on'):
+            self.assertIn(rule, css)
+
+    def test_page_changes_and_the_playlist_menu_use_the_same_bubbles(self):
+        self.assertIn('window.Toast.scan()', self.read('static', 'js', 'nav.js'))           # messages arriving with a new page
+        menu = self.read('static', 'js', 'pl_menu.js')
+        self.assertIn('window.Toast.show', menu)
+        self.assertNotIn("className = 'toast'", menu)                                        # no second, separate bubble
+
+
+class ArtistPickerTests(BaseTestCase):
+    """The nicer Artist dropdown on the album form (static/js/artist_picker.js)."""
+
+    def setUp(self):
+        self.login()
+
+    def test_the_select_is_marked_for_the_picker_and_options_carry_the_artists_photo(self):
+        Artist.objects.filter(pk=self.artist.pk).update(image='artists/daft.jpg')
+        html = self.client.get(reverse('album_create')).content.decode()
+        self.assertIn('data-artist-picker', html)
+        self.assertIn(f'data-new-url="{reverse("artist_create")}"', html)
+        self.assertRegex(html, r'<option value="%d" data-image="[^"]*artists/daft\.jpg"' % self.artist.pk)
+        self.assertIn('js/artist_picker.js', html)
+
+    def test_it_is_still_a_normal_dropdown_that_submits_the_chosen_artist(self):
+        response = self.client.post(reverse('album_create'), {'title': 'New LP', 'artist': self.artist.pk, 'release_date': '2020-01-01'})
+        self.assertEqual(Album.objects.get(title='New LP').artist, self.artist)
+        self.assertEqual(response.status_code, 302)
+
+
 class WikipediaBioTests(BaseTestCase):
     """The short artist bio the "Fill in from Spotify" box takes from Wikipedia (Wikipedia's answers are faked here)."""
 
@@ -922,9 +1221,7 @@ class WikipediaBioTests(BaseTestCase):
         found = self.lookup('Chase Atlantic', self.reply(self.BAND))
         self.assertIn('Australian alternative R&B band', found['bio'])
         self.assertEqual(found['url'], 'https://en.wikipedia.org/wiki/Chase_Atlantic')
-        text = self.wiki.with_credit(found)
-        self.assertTrue(text.endswith('(https://en.wikipedia.org/wiki/Chase_Atlantic), CC BY-SA 4.0.'))
-        self.assertIn('Source: Wikipedia', text)
+        self.assertNotIn('Source:', found['bio'])                     # the credit is kept apart from the text
 
     def test_a_non_musical_page_is_skipped_for_the_singer_page(self):
         football = {'title': 'Malcolm Todd', 'extract': 'Malcolm Todd (born 1970) is a retired English footballer.'}
@@ -970,13 +1267,14 @@ class WikipediaBioTests(BaseTestCase):
         url = reverse('artist_bio')
         self.assertEqual(self.client.get(url, {'name': 'x'}).status_code, 302)
         self.login()
-        self.assertEqual(self.client.get(url, {'name': ''}).json(), {'bio': ''})
+        self.assertEqual(self.client.get(url, {'name': ''}).json(), {'bio': '', 'source': ''})
         with self.mock.patch.object(self.wiki, '_get', side_effect=OSError('offline')):
-            self.assertEqual(self.client.get(url, {'name': 'Chase Atlantic'}).json(), {'bio': ''})
+            self.assertEqual(self.client.get(url, {'name': 'Chase Atlantic'}).json(), {'bio': '', 'source': ''})
         with self.mock.patch.object(self.wiki, '_get', return_value=self.reply(self.BAND)):
             data = self.client.get(url, {'name': 'Chase Atlantic'}).json()
         self.assertIn('Australian', data['bio'])
-        self.assertIn('Source: Wikipedia', data['bio'])
+        self.assertNotIn('Source:', data['bio'])
+        self.assertEqual(data['source'], 'https://en.wikipedia.org/wiki/Chase_Atlantic')
 
     def test_the_new_artist_form_passes_the_bio_address_to_the_box(self):
         self.login()
@@ -1093,6 +1391,15 @@ class PlaylistPartnerTests(BaseTestCase):
         stranger = self.client.get(self.playlist.get_absolute_url()).content.decode()
         for hidden in ('Edit playlist', 'Delete playlist', 'Add partner', 'Leave'):
             self.assertNotIn(hidden, stranger)
+
+    def test_the_add_partner_box_sits_in_the_button_row_next_to_edit_and_delete(self):
+        self.login()
+        html = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        buttons = html.split('<div class="actions">')[1].split('</div>')[0]          # the Edit / Delete row
+        for expected in ('Edit playlist', 'Delete playlist', 'class="partner-add"', 'Add partner'):
+            self.assertIn(expected, buttons)
+        self.assertEqual(html.count('class="partner-add"'), 1)                     # and it is no longer under "Partners"
+        self.assertLess(html.index('class="partner-add"'), html.index('<h2>Partners</h2>'))
 
     def test_the_partner_playlist_shows_up_where_the_partners_own_playlists_do(self):
         self.make_bob_partner()

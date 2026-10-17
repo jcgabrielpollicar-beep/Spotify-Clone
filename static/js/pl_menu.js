@@ -9,20 +9,9 @@
 
   var WIDTH = 230;
 
-  // ---- small confirmation message
-  var toast = null;
-  var toastTimer = null;
-  function say(text) {
-    if (!toast || !toast.isConnected) {
-      toast = document.createElement('div');
-      toast.className = 'toast';
-      toast.setAttribute('role', 'status');
-      document.body.appendChild(toast);
-    }
-    toast.textContent = text;
-    toast.classList.add('is-on');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toast.classList.remove('is-on'); }, 2400);
+  // ---- small confirmation message: a popup bubble (static/js/toast.js)
+  function say(text, kind) {
+    if (window.Toast) window.Toast.show(text, kind || 'success');
   }
 
   // ---- open / close
@@ -89,6 +78,6 @@
         if (details) details.removeAttribute('open');
         say(result.created ? 'Added to “' + result.playlist + '”' : 'Already in “' + result.playlist + '”');
       })
-      .catch(function () { say('Couldn’t add the song. Try again.'); });
+      .catch(function () { say('Couldn’t add the song. Try again.', 'error'); });
   });
 })();

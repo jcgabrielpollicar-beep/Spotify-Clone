@@ -88,8 +88,12 @@
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (mine !== picks || bio.value.trim()) return;               // picked someone else, or you started typing
-          if (data.bio) { setValue('bio', data.bio); say('Filled in from Spotify, with a bio from Wikipedia (credited at the end). Change anything you like, then press Save.'); }
-          else { if (genres) setValue('bio', genres); say('Filled in from Spotify. No Wikipedia bio was found, so write one if you like, then press Save.'); }
+          if (data.bio) {
+            setValue('bio', data.bio);
+            var source = field('bio_source');
+            if (source) source.value = data.source || '';           // shown as a small credit under the bio on the artist page
+            say('Filled in from Spotify, with a bio from Wikipedia. Change anything you like, then press Save.');
+          } else { if (genres) setValue('bio', genres); say('Filled in from Spotify. No Wikipedia bio was found, so write one if you like, then press Save.'); }
         })
         .catch(function () {
           if (mine !== picks || bio.value.trim()) return;

@@ -95,6 +95,7 @@
     var main = document.querySelector('main');
     main.innerHTML = doc.querySelector('main').innerHTML;
     runScripts(main);
+    if (window.Toast) window.Toast.scan();           // a message that came with the new page ("Saved.") pops up as a bubble
 
     document.body.className = doc.body.className + (playerShowing ? ' has-player' : '');
     document.body.setAttribute('style', doc.body.getAttribute('style') || '');   // the album / artist colour theme

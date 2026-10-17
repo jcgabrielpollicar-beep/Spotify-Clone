@@ -22,7 +22,29 @@
   </div>
 
   <div class="detail-scroll">
-    {% if artist.bio %}<h2>About</h2><p>{{ artist.bio|linebreaksbr }}</p>{% endif %}
+    {% if artist.bio %}
+      <h2>About</h2>
+      {# long bios show a few lines; "See more" (shown only when the text is cut) opens the rest #}
+      <p class="bio-text is-clamped" id="artist-bio">{{ artist.bio|linebreaksbr }}</p>
+      <button class="bio-more" id="artist-bio-more" type="button" aria-controls="artist-bio" aria-expanded="false" hidden>See more</button>
+      {% if artist.bio_source %}
+        <p class="bio-credit">Bio from <a href="{{ artist.bio_source }}" target="_blank" rel="noopener">Wikipedia</a> &middot; CC BY-SA 4.0</p>
+      {% endif %}
+      <script>
+        (function () {
+          var text = document.getElementById('artist-bio');
+          var more = document.getElementById('artist-bio-more');
+          if (!text || !more) return;
+          if (text.scrollHeight > text.clientHeight + 2) more.hidden = false;      // the text really is cut off
+          else text.classList.remove('is-clamped');
+          more.addEventListener('click', function () {
+            var open = text.classList.toggle('is-clamped') === false;
+            more.textContent = open ? 'See less' : 'See more';
+            more.setAttribute('aria-expanded', open ? 'true' : 'false');
+          });
+        })();
+      </script>
+    {% endif %}
 
     <h2>Albums</h2>
     {% if artist.albums.all %}

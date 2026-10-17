@@ -8,6 +8,7 @@
 
   <form class="editor-card editor-form" method="post" enctype="multipart/form-data">
     {% csrf_token %}
+    {% if not form.instance.pk %}<input type="hidden" name="next" value="{{ cancel_url }}">{% endif %}
     <h1>{{ title }}</h1>
     {{ form.non_field_errors }}
     {% url 'spotify_albums' as spotify_albums_url %}
@@ -51,7 +52,7 @@
     <div class="editor-actions">
       <button class="btn" type="submit">Save</button>
       <button class="btn secondary" type="button" id="preview-toggle" aria-expanded="false" aria-controls="album-preview">Preview</button>
-      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{% url 'home' %}{% endif %}">Cancel</a>
+      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{{ cancel_url }}{% endif %}">Cancel</a>
     </div>
   </form>
 
@@ -145,5 +146,6 @@
     });
   })();
 </script>
+<script src="{% asset 'js/artist_picker.js' %}"></script>
 <script src="{% asset 'js/spotify_import.js' %}"></script>
 {% endblock %}

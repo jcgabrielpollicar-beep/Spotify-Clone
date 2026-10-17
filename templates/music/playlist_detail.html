@@ -25,6 +25,13 @@
       <a class="btn secondary" href="{% url 'playlist_update' playlist.pk %}">Edit playlist</a>
       {% if is_owner %}
         <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
+        {# invite a partner: sits in the same row as the buttons #}
+        <form class="partner-add" action="{% url 'playlist_partner_add' playlist.pk %}" method="post">
+          {% csrf_token %}
+          <input type="text" name="username" list="partner-names" placeholder="Add a partner by username" aria-label="Add a partner by username" autocomplete="off" required>
+          <datalist id="partner-names">{% for name in partner_candidates %}<option value="{{ name }}">{% endfor %}</datalist>
+          <button class="btn secondary" type="submit">Add partner</button>
+        </form>
       {% endif %}
     </div>
     {% endif %}
@@ -58,13 +65,7 @@
         <p class="muted partner-note">No partners yet.</p>
       {% endif %}
       {% if is_owner %}
-        <form class="partner-add" action="{% url 'playlist_partner_add' playlist.pk %}" method="post">
-          {% csrf_token %}
-          <input type="text" name="username" list="partner-names" placeholder="Add a partner by username" autocomplete="off" required>
-          <datalist id="partner-names">{% for name in partner_candidates %}<option value="{{ name }}">{% endfor %}</datalist>
-          <button class="btn secondary" type="submit">Add partner</button>
-        </form>
-        <p class="muted partner-note">Partners can edit this playlist and add or remove its songs. Only you can delete it or change partners.</p>
+        <p class="muted partner-note">Partners can edit this playlist and add or remove its songs. Only you can delete it or change partners. Use the box next to the buttons above to add one.</p>
       {% endif %}
     </section>
     {% endif %}
