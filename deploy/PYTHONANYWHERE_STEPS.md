@@ -98,18 +98,30 @@ the link to people you trust, and remove them (`rm -r ~/spotify_clone/media/audi
 
 ---
 
-## Later: updating the site
-Upload a new `site.zip` (I can rebuild it), then in the Bash console:
+## Later: updating the site (every time you change something)
+1. In PyCharm: **Commit** the changed files, then **Push**.
+2. On PythonAnywhere open **Consoles → Bash** and paste this one command:
 
 ```bash
-cd ~/spotify_clone
-unzip -o ~/site.zip -x db.sqlite3 'media/*'
-export DJANGO_SETTINGS_MODULE=mysite.settings_prod
-workon spotifyenv
-python manage.py collectstatic --noinput
-python manage.py migrate
+cd ~/spotify_clone && git pull && export DJANGO_SETTINGS_MODULE=mysite.settings_prod && python manage.py migrate && python manage.py collectstatic --noinput
 ```
-Then press **Reload** on the Web tab. The `-x db.sqlite3` part keeps the accounts and data your friends created.
+3. **Web** tab → green **Reload** button.
+4. In the browser press **Ctrl+F5** so the new styling and scripts are loaded.
+
+The same command works for any number of changes. `migrate` does nothing when there is nothing new, so you can always leave it in.
+The accounts and data on PythonAnywhere stay as they are: the database and the media folder are not part of git.
+If a change adds a library to `requirements.txt`, also run `pip install -r requirements.txt` before the Reload.
+
+## Test account for testers
+So testers don't have to register, create a shared login (username `admin`, password `admin123`). It is a normal account without admin rights:
+
+```bash
+cd ~/spotify_clone && export DJANGO_SETTINGS_MODULE=mysite.settings_prod && python manage.py create_test_account
+```
+Remove it when the testing is over (add `--delete` at the end of the same command).
+
+## Spotify keys on the server
+The "fill in from Spotify" boxes need `spotify_keys.txt` in `~/spotify_clone` (the file is not in git, on purpose). It holds the client id on the first line and the secret on the second.
 
 ## Good to know about the free account
 - A free web app is switched off after 3 months unless you press **Run until 3 months from today** on the Web tab (they email you first).
