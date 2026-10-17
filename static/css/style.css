@@ -645,6 +645,22 @@ body.home-page {
 .list-scroll .card { scroll-snap-align: start; min-width: 0; }
 @media (max-width: 900px) { .list-scroll .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .list-scroll .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* albums on an artist's page: on tablets and phones the same 3 / 2 columns as the Albums page (not one huge card) */
+.detail-scroll .card { min-width: 0; }
+@media (max-width: 900px) { .detail-scroll .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .detail-scroll .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .detail-scroll .card { padding: .75rem; }
+  .detail-scroll .card .title, .detail-scroll .card .sub {      /* long names wrap onto two lines instead of stretching the card */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
 .carousel::-webkit-scrollbar { display: none; }
 .carousel-nav { display: flex; gap: .5rem; }
 .carousel-nav button {

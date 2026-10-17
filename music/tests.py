@@ -1176,6 +1176,31 @@ class ToastTests(BaseTestCase):
         self.assertNotIn("className = 'toast'", menu)                                        # no second, separate bubble
 
 
+class ArtistPageAlbumGridTests(BaseTestCase):
+    """On phones the albums on an artist's page sit two per row, like the Albums page (not one huge card each)."""
+
+    def css(self):
+        return (settings.BASE_DIR / 'static' / 'css' / 'style.css').read_text(encoding='utf-8')
+
+    def test_the_albums_are_in_the_detail_scroll_area_the_stylesheet_targets(self):
+        self.login()
+        html = self.client.get(self.artist.get_absolute_url()).content.decode()
+        self.assertIn('class="detail-scroll"', html)
+        self.assertIn('class="grid', html.split('class="detail-scroll"')[1])          # the album cards grid is inside it
+
+    def test_phones_get_two_columns_and_tablets_three_like_the_albums_page(self):
+        css = self.css()
+        phone = css.split('@media (max-width: 560px) {\n  .detail-scroll .grid')[1].split('}')[0]
+        self.assertIn('repeat(2, minmax(0, 1fr))', phone)
+        self.assertIn('@media (max-width: 900px) { .detail-scroll .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }', css)
+        # the Albums page uses the very same column counts
+        self.assertIn('@media (max-width: 560px) { .list-scroll .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }', css)
+
+    def test_long_album_names_wrap_instead_of_stretching_the_card(self):
+        phone = self.css().split('@media (max-width: 560px) {\n  .detail-scroll .grid')[1].split('\n}\n')[0]
+        self.assertIn('-webkit-line-clamp: 2', phone)
+
+
 class ArtistPickerTests(BaseTestCase):
     """The nicer Artist dropdown on the album form (static/js/artist_picker.js)."""
 
