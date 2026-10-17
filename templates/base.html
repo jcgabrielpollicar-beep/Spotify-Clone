@@ -146,6 +146,7 @@
   <script src="{% asset 'js/player.js' %}" defer></script>
   {% if user.is_authenticated %}
   <script src="{% asset 'js/suggest.js' %}" defer></script>
+  <script src="{% asset 'js/pl_menu.js' %}" defer></script>
   {# Must come last: it swaps <main> on link clicks / form submits so the player bar (outside <main>) keeps playing. #}
   <script src="{% asset 'js/nav.js' %}" defer></script>
   {% endif %}

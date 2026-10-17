@@ -12,22 +12,26 @@
         <div class="muted">Playlist</div>
         <h1>{{ playlist.name }}</h1>
         {% if playlist.description %}<p class="detail-desc">{{ playlist.description|linebreaksbr }}</p>{% endif %}
-        <div>{{ tracks|length }} track{{ tracks|length|pluralize }}</div>
+        <div>{% if not can_edit_playlist %}by {{ playlist.owner.username }} &middot; {% endif %}{{ tracks|length }} track{{ tracks|length|pluralize }}</div>
       </div>
     </div>
 
+    {% if can_edit_playlist %}
     <div class="actions">
       <a class="btn secondary" href="{% url 'playlist_update' playlist.pk %}">Edit playlist</a>
       <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
     </div>
+    {% endif %}
   </div>
 
   <div class="detail-scroll">
     <h2>Tracklist</h2>
     {% if tracks %}
       {% include "music/_tracks.html" with show_album=True %}
+    {% elif can_edit_playlist %}
+      <p class="muted">This playlist is empty. Use "+ Playlist" next to any song to add it here.</p>
     {% else %}
-      <p class="muted">This playlist is empty. Use "+ Add" next to any track on an album page.</p>
+      <p class="muted">This playlist is empty.</p>
     {% endif %}
   </div>
 </div>

@@ -1,5 +1,7 @@
+{% load music_extras %}
 {% comment %}
-  Expects: tracks, liked_ids, my_playlists. Optional: manage (edit/delete links), playlist (remove button), show_album,
+  Expects: tracks, liked_ids, my_playlists, playlist_pairs. Optional: manage (edit/delete links), playlist +
+  can_edit_playlist (remove button, only for the playlist's creator), show_album,
   compact (home page panel: just play, title, time and a heart).
   The play button hands the track (data-* below) to the "Now playing" bar in base.html; static/js/player.js
   keeps the row highlighted while it plays. The rows of one .track-list form the queue.
@@ -39,19 +41,27 @@
         {% endif %}
       </form>
 
-      {% if my_playlists and not compact and not playlist %}  {# not inside a playlist: its songs are already in one #}
-      <form action="{% url 'playlist_add_track' track.pk %}" method="post">
-        {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <select class="trk-pl" name="playlist" aria-label="Add {{ track.title }} to a playlist">
-          <option value="" selected disabled hidden>+ Playlist</option>
-          {% for p in my_playlists %}<option value="{{ p.pk }}">{{ p.name }}</option>{% endfor %}
-        </select>
-        <noscript><button class="trk-link" type="submit">Add</button></noscript>
-      </form>
+      {# "+ Playlist" menu: your own playlists, a tick on the ones that already hold the song (static/js/pl_menu.js) #}
+      {# not shown inside your own playlist (its songs are already in one); on someone else's you can copy songs to yours #}
+      {% if my_playlists and not compact and not can_edit_playlist %}
+      <details class="pl-details">
+        <summary class="pl-btn" aria-label="Add {{ track.title }} to a playlist">+ Playlist</summary>
+        <form class="pl-pop" action="{% url 'playlist_add_track' track.pk %}" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <div class="pl-head">Add to playlist</div>
+          {% for p in my_playlists %}
+            {% playlist_has track p as inside %}
+            <button type="submit" name="playlist" value="{{ p.pk }}" class="pl-item{% if inside %} is-in{% endif %}"{% if inside %} disabled title="Already in {{ p.name }}"{% endif %}>
+              <span class="pl-name">{{ p.name }}</span>{% if inside %}<span class="pl-check" aria-hidden="true">&#10003;</span>{% endif %}
+            </button>
+          {% endfor %}
+          <a class="pl-new" href="{% url 'playlist_create' %}">+ New playlist</a>
+        </form>
+      </details>
       {% endif %}
 
-      {% if playlist %}
+      {% if playlist and can_edit_playlist %}
       <form action="{% url 'playlist_remove_track' playlist.pk track.pk %}" method="post">
         {% csrf_token %}
         <button class="trk-link trk-danger" type="submit">Remove</button>

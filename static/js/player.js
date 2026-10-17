@@ -47,15 +47,6 @@
       .catch(function () { form.submit(); });   // fall back to a normal form post
   });
 
-  // "+ Playlist" dropdown adds the track as soon as you pick one
-  document.addEventListener('change', function (event) {
-    var select = event.target;
-    if (select.classList && select.classList.contains('trk-pl') && select.value) {
-      // requestSubmit fires the normal submit event, so nav.js can handle it without reloading the page
-      if (select.form.requestSubmit) select.form.requestSubmit(); else select.form.submit();
-    }
-  });
-
   if (!bar || !audio) return;          // logged-out pages have no player
 
   // ====================================================================== state

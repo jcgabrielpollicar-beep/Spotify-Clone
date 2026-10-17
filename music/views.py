@@ -26,13 +26,16 @@ def _redirect_back(request, fallback):
 
 
 class TrackListContextMixin:
-    """Adds what the track-row partial needs: which tracks are liked, and the user's playlists."""
+    """Adds what the track-row partial needs: which tracks are liked, the user's own playlists, and which of
+    those playlists already hold each track (shown as a tick in the "+ Playlist" menu)."""
 
     def get_track_context(self, tracks):
         user = self.request.user
         return {
             'liked_ids': set(Like.objects.filter(user=user, track__in=tracks).values_list('track_id', flat=True)),
-            'my_playlists': user.playlists.all(),
+            'my_playlists': list(user.playlists.all()),
+            'playlist_pairs': set(PlaylistTrack.objects.filter(playlist__owner=user, track__in=tracks)
+                                  .values_list('track_id', 'playlist_id')),
         }
 
 
@@ -51,15 +54,22 @@ class ConfirmDeletePage(LoginRequiredMixin):
 SESSION_ARTIST = 'home_artist'
 SESSION_ALBUM = 'home_album'
 SESSION_PLAYLIST = 'home_playlist'
+SESSION_LIKED = 'home_liked'
+LIKED_COLOR = '#4b2e83'                  # the purple of the "Liked Songs" heart (pages and the Tracks panel use it)
 
 
-def _select(request, artist=None, album=None, playlist=None):
-    """Remember the selection. The Tracks panel shows either an album or a playlist, whichever was picked last:
-    picking an artist clears the album, picking an artist or album clears the playlist, picking a playlist
-    clears the album (the artist stays)."""
-    if playlist is not None:
-        request.session[SESSION_PLAYLIST] = playlist.pk
+def _select(request, artist=None, album=None, playlist=None, liked=False):
+    """Remember the selection. The Tracks panel shows one thing at a time (an album, a playlist or Liked Songs),
+    whichever was picked last: picking an artist clears the album, picking an artist or album clears the playlist
+    and Liked Songs, picking a playlist or Liked Songs clears the album (the artist stays)."""
+    if playlist is not None or liked:
         request.session.pop(SESSION_ALBUM, None)
+        if playlist is not None:
+            request.session[SESSION_PLAYLIST] = playlist.pk
+            request.session.pop(SESSION_LIKED, None)
+        else:
+            request.session[SESSION_LIKED] = True
+            request.session.pop(SESSION_PLAYLIST, None)
         return
     if artist is not None:
         request.session[SESSION_ARTIST] = artist.pk
@@ -69,20 +79,22 @@ def _select(request, artist=None, album=None, playlist=None):
     elif artist is not None:
         request.session.pop(SESSION_ALBUM, None)
     request.session.pop(SESSION_PLAYLIST, None)
+    request.session.pop(SESSION_LIKED, None)
 
 
 def _selection(request):
-    """The selected (artist, album, playlist), ignoring anything that no longer exists or no longer matches."""
+    """The selected (artist, album, playlist, liked), ignoring anything that no longer exists or no longer matches."""
     artist = Artist.objects.filter(pk=request.session.get(SESSION_ARTIST)).first()
     album = None
     if artist is not None:
         album = Album.objects.filter(pk=request.session.get(SESSION_ALBUM), artist=artist).first()
     playlist = None
     if request.session.get(SESSION_PLAYLIST) is not None:
-        playlist = Playlist.objects.filter(pk=request.session[SESSION_PLAYLIST], owner=request.user).first()
-        if playlist is not None:
-            album = None
-    return artist, album, playlist
+        playlist = Playlist.objects.filter(pk=request.session[SESSION_PLAYLIST]).first()    # anyone's playlist can be viewed
+    liked = bool(request.session.get(SESSION_LIKED)) and playlist is None
+    if playlist is not None or liked:
+        album = None
+    return artist, album, playlist, liked
 
 
 def _albums_context(artist, album=None):
@@ -96,17 +108,18 @@ def _albums_context(artist, album=None):
     }
 
 
-def _home_theme(artist, album, playlist=None):
+def _home_theme(artist, album, playlist=None, liked=False):
     """CSS variables (for <body style>) that tint the home page from what is selected.
 
     Each container follows its own selection: --artist-* tints the Artists panel, --album-* the Albums panel and
-    --tracks-* the Tracks panel (the playlist's colour while a playlist is showing, otherwise the album's). A
-    container whose selection is empty keeps the neutral look. The page background takes the most specific colour.
+    --tracks-* the Tracks panel (purple for Liked Songs, the playlist's colour while a playlist is showing,
+    otherwise the album's). A container whose selection is empty keeps the neutral look. The page background
+    takes the most specific colour.
     """
     artist_color = artist.theme_color if artist else ''
     album_color = album.theme_color if album else ''        # an album with no cover of its own borrows its artist's colour
     playlist_color = playlist.theme_color if playlist else ''
-    tracks_color = playlist_color or album_color
+    tracks_color = (LIKED_COLOR if liked else '') or playlist_color or album_color
     return ''.join([
         theme_style(tracks_color or artist_color),
         panel_vars('artist', artist_color),
@@ -115,26 +128,33 @@ def _home_theme(artist, album, playlist=None):
     ])
 
 
-def _tracks_context(album, user, playlist=None):
-    """Tracks of the selected playlist or album, plus which of them this user has liked (for the heart buttons)."""
-    if playlist is not None:
+def _tracks_context(album, user, playlist=None, liked=False):
+    """Tracks of the selected playlist, album or Liked Songs, plus which of them this user has liked (heart buttons)."""
+    if liked:
+        likes = Like.objects.filter(user=user).select_related('track__album__artist')
+        tracks = [like.track for like in likes]
+    elif playlist is not None:
         entries = PlaylistTrack.objects.filter(playlist=playlist).select_related('track__album__artist')
         tracks = [entry.track for entry in entries]
     else:
         tracks = list(album.tracks.all()) if album else []
     liked_ids = set(Like.objects.filter(user=user, track__in=tracks).values_list('track_id', flat=True))
-    return {'selected_album': album, 'selected_playlist': playlist, 'tracks': tracks, 'liked_ids': liked_ids}
+    return {'selected_album': album, 'selected_playlist': playlist, 'selected_liked': liked,
+            'tracks': tracks, 'liked_ids': liked_ids}
 
 
 @login_required
 def home(request):
-    artist, album, playlist = _selection(request)
+    artist, album, playlist, liked = _selection(request)
     return render(request, 'music/home.html', {
         'playlists': request.user.playlists.annotate(track_count=Count('tracks')),
+        'other_playlists': Playlist.objects.exclude(owner=request.user).select_related('owner')
+                           .annotate(track_count=Count('tracks')),
+        'liked_count': request.user.likes.count(),
         'artists': Artist.objects.order_by('-pk')[:30],  # newest added first
-        'theme_style': _home_theme(artist, album, playlist),
+        'theme_style': _home_theme(artist, album, playlist, liked),
         **_albums_context(artist, album),
-        **_tracks_context(album, request.user, playlist),
+        **_tracks_context(album, request.user, playlist, liked),
     })
 
 
@@ -164,12 +184,23 @@ def home_album_tracks(request, pk):
 @login_required
 def home_playlist_tracks(request, pk):
     """One click on a playlist: its tracks in the Tracks panel (the album highlight is dropped, the artist stays)."""
-    playlist = get_object_or_404(Playlist, pk=pk, owner=request.user)
+    playlist = get_object_or_404(Playlist, pk=pk)
     _select(request, playlist=playlist)
-    artist, _album, _playlist = _selection(request)
+    artist = _selection(request)[0]
     return JsonResponse({
         'tracks': render_to_string('music/_home_tracks.html', _tracks_context(None, request.user, playlist), request),
         'theme': _home_theme(artist, None, playlist),
+    })
+
+
+@login_required
+def home_liked_tracks(request):
+    """One click on the pinned "Liked Songs" row: the songs this user has liked, newest first."""
+    _select(request, liked=True)
+    artist = _selection(request)[0]
+    return JsonResponse({
+        'tracks': render_to_string('music/_home_tracks.html', _tracks_context(None, request.user, liked=True), request),
+        'theme': _home_theme(artist, None, liked=True),
     })
 
 
@@ -337,27 +368,37 @@ class TrackDelete(ConfirmDeletePage, DeleteView):
 # ---------------------------------------------------------------- playlists
 
 class OwnPlaylistsMixin(LoginRequiredMixin):
-    """Playlists are private: other users' playlists 404."""
+    """Playlists can be seen by every signed-in user but changed only by their creator: for anyone else the
+    edit and delete pages are "not found"."""
 
     def get_queryset(self):
         return Playlist.objects.filter(owner=self.request.user)
 
 
-class PlaylistList(OwnPlaylistsMixin, ListView):
+class PlaylistList(LoginRequiredMixin, ListView):
     model = Playlist
 
     def get_queryset(self):
-        return super().get_queryset().annotate(track_count=Count('tracks'))
+        return Playlist.objects.select_related('owner').annotate(track_count=Count('tracks'))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        playlists = list(context['object_list'])
+        context['mine'] = [p for p in playlists if p.owner_id == self.request.user.pk]
+        context['others'] = [p for p in playlists if p.owner_id != self.request.user.pk]
+        return context
 
 
-class PlaylistDetail(OwnPlaylistsMixin, TrackListContextMixin, DetailView):
+class PlaylistDetail(LoginRequiredMixin, TrackListContextMixin, DetailView):
     model = Playlist
+    queryset = Playlist.objects.select_related('owner')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         entries = PlaylistTrack.objects.filter(playlist=self.object).select_related('track__album__artist')
         tracks = [entry.track for entry in entries]
         context['tracks'] = tracks
+        context['can_edit_playlist'] = self.object.owner_id == self.request.user.pk
         context.update(self.get_track_context(tracks))
         return context
 
@@ -392,6 +433,8 @@ def playlist_add_track(request, track_pk):
     track = get_object_or_404(Track, pk=track_pk)
     playlist = get_object_or_404(Playlist, pk=request.POST.get('playlist'), owner=request.user)
     _, created = PlaylistTrack.objects.get_or_create(playlist=playlist, track=track)
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':        # the "+ Playlist" menu adds in place
+        return JsonResponse({'created': created, 'playlist': playlist.name, 'track': track.title})
     if created:
         messages.success(request, f'Added "{track.title}" to {playlist.name}.')
     else:
@@ -433,6 +476,7 @@ class LikedSongs(LoginRequiredMixin, TrackListContextMixin, ListView):
         context = super().get_context_data(**kwargs)
         tracks = [like.track for like in context['object_list']]
         context['tracks'] = tracks
+        context['theme_style'] = theme_style(LIKED_COLOR)
         context.update(self.get_track_context(tracks))
         return context
 

@@ -1,25 +1,37 @@
 {% extends "base.html" %}
-{% block title %}My playlists{% endblock %}
+{% block title %}Playlists{% endblock %}
 {% block body_class %}bare-page{% endblock %}
 {% block page_class %}page-wide{% endblock %}
 {% block content %}
 <div class="list-card">
   <h1>My playlists</h1>
   <div class="actions"><a class="btn" href="{% url 'playlist_create' %}">New playlist</a></div>
-  {% if object_list %}
-    <div class="list-scroll">
-      <div class="grid">
-        {% for playlist in object_list %}
-          <a class="card" href="{{ playlist.get_absolute_url }}" title="{{ playlist.name }}">
-            {% if playlist.cover_url %}<img src="{{ playlist.cover_url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
-            <div class="title">{{ playlist.name }}</div>
-            <div class="sub">{{ playlist.track_count }} track{{ playlist.track_count|pluralize }}</div>
-          </a>
-        {% endfor %}
-      </div>
+  {% if mine %}
+    <div class="grid">
+      {% for playlist in mine %}
+        <a class="card" href="{{ playlist.get_absolute_url }}" title="{{ playlist.name }}">
+          {% if playlist.cover_url %}<img src="{{ playlist.cover_url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+          <div class="title">{{ playlist.name }}</div>
+          <div class="sub">{{ playlist.track_count }} track{{ playlist.track_count|pluralize }}</div>
+        </a>
+      {% endfor %}
     </div>
   {% else %}
     <p class="muted">You haven't created any playlists yet.</p>
+  {% endif %}
+
+  {% if others %}
+    <h2>Shared by others</h2>
+    <p class="muted">Everyone can listen to these. Only the person who made a playlist can change it.</p>
+    <div class="grid">
+      {% for playlist in others %}
+        <a class="card" href="{{ playlist.get_absolute_url }}" title="{{ playlist.name }} by {{ playlist.owner.username }}">
+          {% if playlist.cover_url %}<img src="{{ playlist.cover_url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+          <div class="title">{{ playlist.name }}</div>
+          <div class="sub">by {{ playlist.owner.username }} &middot; {{ playlist.track_count }} track{{ playlist.track_count|pluralize }}</div>
+        </a>
+      {% endfor %}
+    </div>
   {% endif %}
 </div>
 {% endblock %}

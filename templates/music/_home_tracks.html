@@ -1,5 +1,11 @@
-{# Inside the Tracks panel on the home page: the selected playlist's or album's tracks (playable), or a hint. #}
-{% if selected_playlist %}
+{# Inside the Tracks panel on the home page: Liked Songs, the selected playlist's or album's tracks (playable), or a hint. #}
+{% if selected_liked %}
+  {% if tracks %}
+    {% include "music/_tracks.html" with compact=True show_album=True %}
+  {% else %}
+    <p class="muted">No liked songs yet. Tap the heart next to a song to add it here.</p>
+  {% endif %}
+{% elif selected_playlist %}
   {% if tracks %}
     {% include "music/_tracks.html" with compact=True show_album=True %}
   {% else %}

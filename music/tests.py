@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .models import Album, Artist, Like, Playlist, PlaylistTrack, Track
+from .views import LIKED_COLOR
 
 User = get_user_model()
 
@@ -63,7 +64,8 @@ class HomeTests(BaseTestCase):
         for panel in ('area-playlists', 'area-albums', 'area-artists', 'area-tracks'):
             self.assertContains(response, panel)
         self.assertContains(response, 'Favourites')       # own playlist
-        self.assertNotContains(response, 'Bobs secret')   # someone else's playlist
+        self.assertContains(response, 'Shared by others')  # everyone's playlists are visible ...
+        self.assertContains(response, 'Bobs secret')
         self.assertContains(response, 'Daft Punk')        # artist card
         self.assertContains(response, reverse('artist_create'))  # "add artist" tile
 
@@ -949,22 +951,75 @@ class PlaylistTests(BaseTestCase):
         self.client.post(reverse('playlist_create'), {'name': 'Road trip', 'description': 'vroom'})
         self.assertEqual(Playlist.objects.get(name='Road trip').owner, self.alice)
 
-    def test_list_shows_only_own_playlists(self):
-        Playlist.objects.create(owner=self.bob, name='Bobs secret')
+    def test_list_shows_own_playlists_and_everyone_elses_in_a_separate_section(self):
+        Playlist.objects.create(owner=self.bob, name='Bobs mix')
         self.login()
         response = self.client.get(reverse('playlist_list'))
-        self.assertContains(response, 'Favourites')
-        self.assertNotContains(response, 'Bobs secret')
+        self.assertEqual([p.name for p in response.context['mine']], ['Favourites'])
+        self.assertEqual([p.name for p in response.context['others']], ['Bobs mix'])
+        self.assertContains(response, 'Shared by others')
+        self.assertContains(response, 'by bob')
 
-    def test_only_owner_can_view_edit_delete(self):
+    def test_everyone_can_view_a_playlist_but_only_its_creator_can_edit_or_delete_it(self):
         self.login('bob')
-        for name in ('playlist_detail', 'playlist_update', 'playlist_delete'):
+        self.assertEqual(self.client.get(reverse('playlist_detail', args=[self.playlist.pk])).status_code, 200)
+        for name in ('playlist_update', 'playlist_delete'):
             url = reverse(name, args=[self.playlist.pk])
             self.assertEqual(self.client.get(url).status_code, 404, name)
         self.client.post(reverse('playlist_update', args=[self.playlist.pk]), {'name': 'hacked'})
         self.client.post(reverse('playlist_delete', args=[self.playlist.pk]))
         self.playlist.refresh_from_db()
         self.assertEqual(self.playlist.name, 'Favourites')
+
+    def test_other_peoples_playlist_page_has_no_edit_controls(self):
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        self.login('bob')
+        Playlist.objects.create(owner=self.bob, name='Bobs own')            # bob has a playlist to copy songs into
+        html = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        self.assertIn('One More Time', html)
+        self.assertIn('by alice', html)
+        for hidden in ('Edit playlist', 'Delete playlist', 'Remove'):
+            self.assertNotIn(hidden, html)
+        self.assertIn('+ Playlist', html)                                  # but a song can be copied to his own playlist
+        self.assertIn('Bobs own', html)
+        self.assertNotIn('Favourites</span>', html)                        # alice's playlist is not in bob's menu
+
+    def test_owner_sees_the_edit_controls_and_no_add_menu(self):
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        self.login()
+        html = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        for shown in ('Edit playlist', 'Delete playlist', 'Remove'):
+            self.assertIn(shown, html)
+        self.assertNotIn('+ Playlist', html)
+
+    def test_nobody_else_can_remove_songs_or_add_to_someone_elses_playlist(self):
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        self.login('bob')
+        self.assertEqual(self.client.post(reverse('playlist_remove_track', args=[self.playlist.pk, self.track.pk])).status_code, 404)
+        self.assertEqual(PlaylistTrack.objects.count(), 1)
+        other = Track.objects.create(album=self.album, title='Other', track_number=2, duration=datetime.timedelta(minutes=3))
+        self.assertEqual(self.client.post(reverse('playlist_add_track', args=[other.pk]), {'playlist': self.playlist.pk}).status_code, 404)
+
+    def test_plus_playlist_menu_ticks_playlists_that_already_hold_the_song(self):
+        second = Playlist.objects.create(owner=self.alice, name='Road trip')
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        self.login()
+        html = self.client.get(self.album.get_absolute_url()).content.decode()
+        self.assertIn('class="pl-details"', html)
+        self.assertIn('Add to playlist', html)
+        self.assertRegex(html, r'class="pl-item is-in"[^>]*disabled')      # Favourites already has it
+        self.assertIn(f'name="playlist" value="{second.pk}" class="pl-item"', html)
+        self.assertIn(reverse('playlist_create'), html)                    # "+ New playlist" shortcut
+
+    def test_adding_from_the_menu_answers_json_for_the_page_script(self):
+        self.login()
+        url = reverse('playlist_add_track', args=[self.track.pk])
+        headers = {'HTTP_X_REQUESTED_WITH': 'XMLHttpRequest'}
+        first = self.client.post(url, {'playlist': self.playlist.pk}, **headers).json()
+        again = self.client.post(url, {'playlist': self.playlist.pk}, **headers).json()
+        self.assertEqual(first, {'created': True, 'playlist': 'Favourites', 'track': 'One More Time'})
+        self.assertFalse(again['created'])
+        self.assertEqual(PlaylistTrack.objects.count(), 1)
 
     def test_owner_can_update_and_delete(self):
         self.login()
@@ -1041,9 +1096,15 @@ class HomePlaylistTests(BaseTestCase):
         data = self.client.get(reverse('home_playlist_tracks', args=[empty.pk])).json()
         self.assertIn('This playlist is empty', data['tracks'])
 
-    def test_cannot_open_someone_elses_playlist(self):
-        secret = Playlist.objects.create(owner=self.bob, name='Bobs secret')
-        self.assertEqual(self.client.get(reverse('home_playlist_tracks', args=[secret.pk])).status_code, 404)
+    def test_someone_elses_playlist_can_be_opened_and_is_listed_under_shared(self):
+        theirs = Playlist.objects.create(owner=self.bob, name='Bobs mix')
+        PlaylistTrack.objects.create(playlist=theirs, track=self.track)
+        data = self.client.get(reverse('home_playlist_tracks', args=[theirs.pk])).json()
+        self.assertIn('One More Time', data['tracks'])
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn('Shared by others', html)
+        self.assertIn('Playlist &middot; bob &middot; 1 song<', html)
+        self.assertLess(html.index('Favourites'), html.index('Shared by others'))   # own playlists come first
 
     def test_a_deleted_playlist_is_forgotten(self):
         self.client.get(reverse('home_playlist_tracks', args=[self.playlist.pk]))
@@ -1094,6 +1155,71 @@ class PlaylistPageTests(BaseTestCase):
         self.assertNotContains(detail, '+ Playlist')                       # its songs are already in a playlist
         self.assertContains(detail, 'Remove')                              # but they can be taken out
         self.assertContains(self.client.get(self.album.get_absolute_url()), '+ Playlist')
+
+
+class LikedSongsDesignTests(BaseTestCase):
+    """Liked Songs: card page like a playlist, and a pinned row at the top of the home Playlists panel."""
+
+    def setUp(self):
+        self.login()
+        Like.objects.create(user=self.alice, track=self.track)
+
+    def test_page_uses_the_card_layout_with_a_count(self):
+        response = self.client.get(reverse('liked_songs'))
+        self.assertContains(response, 'list-card is-detail')
+        self.assertContains(response, 'liked-cover')
+        self.assertContains(response, '1 song<')
+        self.assertContains(response, 'One More Time')
+        self.assertContains(response, f'--accent:{LIKED_COLOR}')
+
+    def test_empty_page_explains_how_to_like_a_song(self):
+        Like.objects.all().delete()
+        response = self.client.get(reverse('liked_songs'))
+        self.assertContains(response, "You haven't liked any songs yet")
+        self.assertContains(response, '0 songs')
+
+    def test_home_pins_liked_songs_above_the_playlists(self):
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn('data-kind="liked"', html)
+        self.assertIn('Playlist &middot; 1 song<', html)
+        self.assertLess(html.index('data-kind="liked"'), html.index('data-kind="playlist"'))
+        self.assertIn(f'data-liked-url="{reverse("home_liked_tracks")}"', html)
+
+    def test_clicking_it_returns_the_liked_tracks_with_a_purple_tint(self):
+        data = self.client.get(reverse('home_liked_tracks')).json()
+        self.assertIn('One More Time', data['tracks'])
+        self.assertNotIn('+ Add track', data['tracks'])
+        self.assertIn('--tracks-panel:#', data['theme'])
+        self.assertIn(LIKED_COLOR, data['theme'])
+
+    def test_only_this_users_likes_are_shown(self):
+        other = Track.objects.create(album=self.album, title='Secret Song', track_number=2,
+                                     duration=datetime.timedelta(minutes=3))
+        Like.objects.create(user=self.bob, track=other)
+        data = self.client.get(reverse('home_liked_tracks')).json()
+        self.assertNotIn('Secret Song', data['tracks'])
+
+    def test_selection_is_remembered_and_replaced_by_the_next_pick(self):
+        self.client.get(reverse('home_liked_tracks'))
+        response = self.client.get(reverse('home'))
+        self.assertTrue(response.context['selected_liked'])
+        self.assertContains(response, 'lib-row is-selected')
+        self.client.get(reverse('home_album_tracks', args=[self.album.pk]))      # an album takes over
+        response = self.client.get(reverse('home'))
+        self.assertFalse(response.context['selected_liked'])
+        self.assertEqual(response.context['selected_album'], self.album)
+        self.client.get(reverse('home_liked_tracks'))                            # liked takes the album's place
+        response = self.client.get(reverse('home'))
+        self.assertTrue(response.context['selected_liked'])
+        self.assertIsNone(response.context['selected_album'])
+
+    def test_picking_a_playlist_replaces_liked_songs(self):
+        self.client.get(reverse('home_liked_tracks'))
+        self.client.get(reverse('home_playlist_tracks', args=[self.playlist.pk]))
+        response = self.client.get(reverse('home'))
+        self.assertFalse(response.context['selected_liked'])
+        self.assertEqual(response.context['selected_playlist'], self.playlist)
+
 
 class LikeTests(BaseTestCase):
     def test_like_toggle_and_liked_page(self):

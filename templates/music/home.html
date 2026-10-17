@@ -7,7 +7,8 @@
 <div class="home-grid"
      data-albums-url="{% url 'home_artist_albums' 0 %}"
      data-tracks-url="{% url 'home_album_tracks' 0 %}"
-     data-playlist-url="{% url 'home_playlist_tracks' 0 %}">
+     data-playlist-url="{% url 'home_playlist_tracks' 0 %}"
+     data-liked-url="{% url 'home_liked_tracks' %}">
 
   <section class="panel area-playlists">
     <div class="panel-head">
@@ -16,6 +17,16 @@
     </div>
     <div class="panel-body library">
       {# one row per playlist, like a library list: cover, name, "Playlist · N songs". Click shows its tracks, double-click opens it. #}
+      {# Liked Songs is pinned at the top, like in Spotify's library #}
+      <a class="lib-row{% if selected_liked %} is-selected{% endif %}" href="{% url 'liked_songs' %}"
+         data-kind="liked" data-id="liked" data-name="Liked Songs"
+         title="Liked Songs (click to show your liked songs, double-click to open)">
+        <span class="lib-cover is-liked"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.3 2.8 4.5 6.4 4.5c2 0 3.7 1.1 4.6 2.8.9-1.7 2.6-2.8 4.6-2.8 3.6 0 5.5 3.8 4 7.3C19.5 16.4 12 21 12 21z"/></svg></span>
+        <span class="lib-text">
+          <span class="lib-title">Liked Songs</span>
+          <span class="lib-sub">Playlist &middot; {{ liked_count }} song{{ liked_count|pluralize }}</span>
+        </span>
+      </a>
       {% for playlist in playlists %}
         <a class="lib-row{% if selected_playlist.pk == playlist.pk %} is-selected{% endif %}" href="{{ playlist.get_absolute_url }}"
            data-kind="playlist" data-id="{{ playlist.pk }}" data-name="{{ playlist.name }}"
@@ -27,8 +38,23 @@
           </span>
         </a>
       {% empty %}
-        <p class="muted">No playlists yet. <a href="{% url 'playlist_create' %}">Create one</a>.</p>
+        <p class="muted">No playlists of your own yet. <a href="{% url 'playlist_create' %}">Create one</a>.</p>
       {% endfor %}
+      {% if other_playlists %}
+        {# everyone's playlists can be played here; only their creator can change them #}
+        <div class="lib-heading">Shared by others</div>
+        {% for playlist in other_playlists %}
+          <a class="lib-row{% if selected_playlist.pk == playlist.pk %} is-selected{% endif %}" href="{{ playlist.get_absolute_url }}"
+             data-kind="playlist" data-id="{{ playlist.pk }}" data-name="{{ playlist.name }}"
+             title="{{ playlist.name }} by {{ playlist.owner.username }} (click to show its tracks, double-click to open)">
+            <span class="lib-cover">{% with cover=playlist.cover_url %}{% if cover %}<img src="{{ cover }}" alt="">{% else %}&#9835;{% endif %}{% endwith %}</span>
+            <span class="lib-text">
+              <span class="lib-title">{{ playlist.name }}</span>
+              <span class="lib-sub">Playlist &middot; {{ playlist.owner.username }} &middot; {{ playlist.track_count }} song{{ playlist.track_count|pluralize }}</span>
+            </span>
+          </a>
+        {% endfor %}
+      {% endif %}
     </div>
   </section>
 
@@ -130,15 +156,19 @@
     function mark(card) {
       var kind = card.dataset.kind;
       unmark(kind);
-      // the Tracks panel shows one thing at a time: a playlist replaces the album, an artist or album replaces the playlist
-      if (kind === 'playlist') unmark('album'); else unmark('playlist');
+      // the Tracks panel shows one thing at a time: a playlist or Liked Songs replaces the album (and each other),
+      // an artist or album replaces the playlist and Liked Songs
+      if (kind === 'playlist' || kind === 'liked') { unmark('album'); unmark(kind === 'playlist' ? 'liked' : 'playlist'); }
+      else { unmark('playlist'); unmark('liked'); }
       card.classList.add('is-selected');
     }
 
     function load(card) {
       var kind = card.dataset.kind;
-      var template = kind === 'artist' ? grid.dataset.albumsUrl : kind === 'playlist' ? grid.dataset.playlistUrl : grid.dataset.tracksUrl;
-      var url = template.replace('/0/', '/' + card.dataset.id + '/');
+      var url;
+      if (kind === 'liked') url = grid.dataset.likedUrl;
+      else url = (kind === 'artist' ? grid.dataset.albumsUrl : kind === 'playlist' ? grid.dataset.playlistUrl : grid.dataset.tracksUrl)
+        .replace('/0/', '/' + card.dataset.id + '/');
       var ticket = ++latest;
       fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
