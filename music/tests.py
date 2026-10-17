@@ -9,7 +9,7 @@ from django.utils import timezone
 from accounts.models import Profile
 
 from .models import Album, Artist, Like, Play, Playlist, PlaylistPartner, PlaylistTrack, Track
-from .stats import month_start, top_artists, top_songs
+from .stats import month_start, recently_played, top_artists, top_songs
 from .views import LIKED_COLOR
 
 User = get_user_model()
@@ -79,7 +79,9 @@ class HomeTests(BaseTestCase):
         self.assertContains(response, 'Select an artist or add one first')
         self.assertContains(response, 'Select an album or a playlist to see its tracks')
         self.assertNotContains(response, 'add album')   # no add-album tile until an artist is picked
-        self.assertNotContains(response, 'Discovery')   # albums are hidden until an artist is picked
+        html = response.content.decode()
+        panels = html.split('<div class="home-recent">')[0]     # the Albums panel stays empty ("Recently added" below lists albums on purpose)
+        self.assertNotIn('Discovery', panels)                   # albums are hidden until an artist is picked
         self.assertNotContains(response, 'One More Time')
 
     def test_first_time_user_with_no_data_sees_the_hint_and_add_artist_tile(self):
@@ -560,6 +562,55 @@ class PlayRecordingTests(BaseTestCase):
         js = (settings.BASE_DIR / 'static' / 'js' / 'player.js').read_text(encoding='utf-8')
         self.assertIn('/plays/record/', js)
         self.assertIn('countListening', js)
+
+
+class RecentRowsTests(BaseTestCase):
+    """The home page's "Recently played" and "Recently added" rows (under the four panels)."""
+
+    def setUp(self):
+        self.second = Track.objects.create(album=self.album, title='Aerodynamic', track_number=2, duration=datetime.timedelta(minutes=3))
+
+    def play(self, track, user=None, minutes_ago=0):
+        Play.objects.create(user=user or self.alice, track=track, played_at=timezone.now() - datetime.timedelta(minutes=minutes_ago))
+
+    def test_recently_played_is_newest_first_and_lists_each_song_once(self):
+        self.play(self.track, minutes_ago=30)
+        self.play(self.second, minutes_ago=20)
+        self.play(self.track, minutes_ago=5)                 # listened to again: moves to the front, no duplicate
+        self.assertEqual([t.title for t in recently_played(self.alice)], ['One More Time', 'Aerodynamic'])
+
+    def test_recently_played_is_per_person_and_limited(self):
+        self.play(self.track, user=self.bob)
+        self.assertEqual(recently_played(self.alice), [])
+        for n in range(15):
+            track = Track.objects.create(album=self.album, title=f'Extra {n}', track_number=10 + n, duration=datetime.timedelta(minutes=3))
+            self.play(track, minutes_ago=n)
+        self.assertEqual(len(recently_played(self.alice)), 12)
+
+    def test_home_shows_both_rows(self):
+        self.play(self.track)
+        self.login()
+        response = self.client.get(reverse('home'))
+        html = response.content.decode()
+        self.assertIn('Recently played', html)
+        self.assertIn('Recently added', html)
+        self.assertEqual([t.title for t in response.context['recent_tracks']], ['One More Time'])
+        self.assertEqual([a.title for a in response.context['recent_albums']], ['Discovery'])
+
+    def test_empty_states_and_no_play_button_without_audio(self):
+        self.login()
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn('Nothing played yet', html)
+        self.play(self.track)                                # no audio file: the tile shows, without a play button
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn('class="rc"', html)
+        self.assertNotIn('rc-play', html.split('id="recent-played-row"')[1].split('Recently added')[0])
+
+    def test_recently_added_puts_the_newest_album_first(self):
+        newer = Album.objects.create(title='Homework', artist=self.artist, release_date=datetime.date(1997, 1, 20))   # older release, added later
+        self.login()
+        albums = list(self.client.get(reverse('home')).context['recent_albums'])
+        self.assertEqual(albums[0], newer)
 
 
 class TopStatsTests(BaseTestCase):

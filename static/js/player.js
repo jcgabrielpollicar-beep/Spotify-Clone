@@ -157,8 +157,8 @@
   }
 
   function startFromRow(row) {
-    var list = row.closest('.track-list');
-    var rows = list ? list.querySelectorAll('.trk[data-src]') : [row];
+    var list = row.closest('.track-list, .rc-row');                 // .rc = a tile on the home page's "Recently played" row
+    var rows = list ? list.querySelectorAll('.trk[data-src], .rc[data-src]') : [row];
     queue = [];
     var start = 0;
     Array.prototype.forEach.call(rows, function (r) {
@@ -303,18 +303,18 @@
 
   // ---- the track rows on the page follow what the bar is playing
   function rowFor(t) {
-    return t ? document.querySelector('.trk[data-id="' + t.id + '"]') : null;
+    return t ? document.querySelector('.trk[data-id="' + t.id + '"], .rc[data-id="' + t.id + '"]') : null;
   }
 
   function syncRows() {
     var t = current();
     var playing = !audio.paused && !audio.ended;
-    Array.prototype.forEach.call(document.querySelectorAll('.trk'), function (row) {
+    Array.prototype.forEach.call(document.querySelectorAll('.trk, .rc'), function (row) {
       var mine = !!t && row.dataset.id === t.id && !!row.dataset.src;
       row.classList.toggle('is-active', mine);
       row.classList.toggle('is-playing', mine && playing);
       if (!mine) row.classList.remove('has-error');
-      var button = row.querySelector('.trk-play');
+      var button = row.querySelector('.trk-play, .rc-play');
       if (button && !button.disabled) {
         var on = mine && playing;
         button.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -332,7 +332,7 @@
   new MutationObserver(function (mutations) {
     var rowsAdded = mutations.some(function (m) {
       return Array.prototype.some.call(m.addedNodes, function (n) {
-        return n.nodeType === 1 && (n.matches('.trk') || n.querySelector('.trk'));
+        return n.nodeType === 1 && (n.matches('.trk, .rc') || n.querySelector('.trk, .rc'));
       });
     });
     if (rowsAdded) syncRows();
@@ -357,9 +357,9 @@
 
   // ====================================================================== controls
   document.addEventListener('click', function (event) {
-    var button = event.target.closest('.trk-play');
+    var button = event.target.closest('.trk-play, .rc-play');
     if (!button || button.disabled) return;
-    var row = button.closest('.trk');
+    var row = button.closest('.trk, .rc');
     if (!row || !row.dataset.src) return;
     if (current() && current().id === row.dataset.id) toggle();
     else startFromRow(row);

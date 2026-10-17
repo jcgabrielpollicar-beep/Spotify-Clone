@@ -455,7 +455,7 @@ body.home-page {
 /* home: playlists | albums over artists | tracks */
 .home-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, .95fr) minmax(0, 1.7fr) minmax(0, .88fr);        /* playlists and tracks a little narrower, so albums + artists get the room */
   grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);   /* the Artists row needs ~13rem of cards so the covers stay square */
   gap: 1rem;
   height: calc(100vh - var(--chrome, 152px) - var(--np-bar, 0px));    /* header + margins; leaves room for the Now playing bar when it is showing */
@@ -860,6 +860,36 @@ button.danger-link { color: var(--red); }
 .trk.is-playing .ico-pause { display: block; }
 .trk.is-active .trk-play { background: var(--green); color: #000; }
 .trk-play:disabled { cursor: default; opacity: .75; }
+
+/* home, under the panels: "Recently played" (a tile plays its song, see static/js/player.js) and "Recently added" (albums) */
+.home-recent { display: grid; gap: 1rem; margin-top: 1rem; }
+.home-recent .panel-head:has(+ .rc-empty) .carousel-nav { display: none; }
+.rc-row { display: flex; gap: 1rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .25rem; }
+.rc-row::-webkit-scrollbar { display: none; }
+.rc { position: relative; flex: 0 0 150px; width: 150px; min-width: 0; padding: .6rem; border-radius: 12px; background: #262626; transition: background .15s; }
+.rc:hover { background: #333; color: var(--text); }
+.rc.is-active { background: #333; }
+.rc-art { position: relative; }
+.rc-art > a { display: block; }
+.rc-art img, .rc-art .placeholder { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.rc-art .placeholder { display: grid; place-items: center; background: #333; color: var(--muted); font-size: 2rem; }
+.rc-title { display: block; margin-top: .6rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-sub { display: block; color: var(--muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.rc-sub:hover { color: var(--green); }
+.rc.is-active .rc-title { color: #5bf08c; }
+.rc-play {
+  position: absolute; right: .5rem; bottom: .5rem;
+  width: 38px; height: 38px; border: 0; border-radius: 50%;
+  background: var(--green); color: #000; display: grid; place-items: center;
+  opacity: 0; transform: translateY(6px); transition: opacity .15s, transform .15s;
+}
+.rc-play svg { width: 18px; height: 18px; fill: currentColor; }
+.rc-play .ico-pause, .rc.is-playing .rc-play .ico-play { display: none; }
+.rc.is-playing .rc-play .ico-pause { display: block; }
+.rc:hover .rc-play, .rc-play:focus-visible, .rc.is-active .rc-play { opacity: 1; transform: none; }
+.rc-play:hover { transform: scale(1.08); }
+.rc-empty { margin: 0; padding: .25rem 0 .5rem; color: var(--muted); }
+@media (hover: none) { .rc-play { opacity: 1; transform: none; } }          /* no hover on a touch screen: always show the button */
 
 .trk-main { min-width: 0; }
 .trk-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

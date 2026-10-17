@@ -11,6 +11,18 @@ def month_start(now=None):
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+def recently_played(user, limit=12):
+    """The songs this user listened to last, newest first, each song once (for the home page's "Recently played")."""
+    rows = list(
+        Play.objects.filter(user=user)
+        .values('track')
+        .annotate(last=Max('played_at'))
+        .order_by('-last')[:limit]
+    )
+    tracks = Track.objects.select_related('album__artist').in_bulk([row['track'] for row in rows])
+    return [tracks[row['track']] for row in rows]
+
+
 def top_artists(user, limit=5, since=None):
     """[(artist, plays), ...] for this user, most played first; ties go to whoever was played most recently."""
     since = since or month_start()

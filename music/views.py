@@ -15,7 +15,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
-from . import imports, spotify, wikipedia
+from . import imports, spotify, stats, wikipedia
 from .colors import panel_vars, theme_style
 from .forms import AlbumForm, ArtistForm, PlaylistForm, TrackForm
 from .models import Album, Artist, Like, Play, Playlist, PlaylistPartner, PlaylistTrack, Track, editable_playlists
@@ -185,6 +185,8 @@ def home(request):
                            .annotate(track_count=Count('tracks', distinct=True)),
         'liked_count': request.user.likes.count(),
         'artists': Artist.objects.order_by('-pk')[:30],  # newest added first
+        'recent_tracks': stats.recently_played(request.user),                                 # the rows under the panels
+        'recent_albums': Album.objects.select_related('artist').order_by('-pk')[:12],         # newest added first
         'theme_style': _home_theme(artist, album, playlist, liked),
         **_albums_context(artist, album),
         **_tracks_context(album, request.user, playlist, liked),

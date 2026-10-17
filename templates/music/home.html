@@ -102,6 +102,71 @@
 
 </div>
 
+{# Two scrolling rows below the panels. "Recently played" comes from the listens the player records; static/js/player.js treats a .rc tile like a track row. #}
+<div class="home-recent">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Recently played</h2>
+      <div class="carousel-nav" data-target="recent-played-row">
+        <button type="button" data-scroll="prev" aria-label="Scroll recently played left">&#10094;</button>
+        <button type="button" data-scroll="next" aria-label="Scroll recently played right">&#10095;</button>
+      </div>
+    </div>
+    {% if recent_tracks %}
+      <div class="rc-row" id="recent-played-row">
+        {% for track in recent_tracks %}
+          <div class="rc" data-id="{{ track.pk }}" data-title="{{ track.title }}"
+               data-artist="{{ track.album.artist }}" data-artist-url="{{ track.album.artist.get_absolute_url }}"
+               data-album="{{ track.album.title }}" data-album-url="{{ track.album.get_absolute_url }}"
+               {% if track.album.cover %}data-cover="{{ track.album.cover.url }}"{% endif %}
+               {% if track.playable_url %}data-src="{{ track.playable_url }}" data-seconds="{{ track.duration_seconds }}"{% endif %}>
+            <div class="rc-art">
+              <a href="{{ track.album.get_absolute_url }}" tabindex="-1" aria-hidden="true">
+                {% if track.album.cover %}<img src="{{ track.album.cover.url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+              </a>
+              {% if track.playable_url %}
+                <button class="rc-play" type="button" aria-label="Play {{ track.title }}" aria-pressed="false">
+                  <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+                  <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4.5" height="16" rx="1.2"/><rect x="14" y="4" width="4.5" height="16" rx="1.2"/></svg>
+                </button>
+              {% endif %}
+            </div>
+            <a class="rc-title" href="{{ track.album.get_absolute_url }}" title="{{ track.title }}">{{ track.title }}</a>
+            <a class="rc-sub" href="{{ track.album.artist.get_absolute_url }}">{{ track.album.artist }}</a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="rc-empty">Nothing played yet. Press play on a song and it will show up here.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2><a href="{% url 'album_list' %}">Recently added</a></h2>
+      <div class="carousel-nav" data-target="recent-added-row">
+        <button type="button" data-scroll="prev" aria-label="Scroll recently added left">&#10094;</button>
+        <button type="button" data-scroll="next" aria-label="Scroll recently added right">&#10095;</button>
+      </div>
+    </div>
+    {% if recent_albums %}
+      <div class="rc-row" id="recent-added-row">
+        {% for album in recent_albums %}
+          <a class="rc rc-album" href="{{ album.get_absolute_url }}" title="{{ album.title }} - {{ album.artist }}">
+            <div class="rc-art">
+              {% if album.cover %}<img src="{{ album.cover.url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+            </div>
+            <span class="rc-title">{{ album.title }}</span>
+            <span class="rc-sub">{{ album.release_date.year }} &middot; {{ album.artist }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="rc-empty">Albums you add will show up here.</p>
+    {% endif %}
+  </section>
+</div>
+
 <script>
   (function () {
     var grid = document.querySelector('.home-grid');
