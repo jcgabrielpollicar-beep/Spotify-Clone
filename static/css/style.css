@@ -862,7 +862,8 @@ button.danger-link { color: var(--red); }
 .trk-play:disabled { cursor: default; opacity: .75; }
 
 /* home, under the panels: "Recently played" (a tile plays its song, see static/js/player.js) and "Recently added" (albums) */
-.home-recent { display: grid; gap: 1rem; margin-top: 1rem; }
+.home-recent { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 1rem; }   /* minmax(0): the rows scroll inside the panel instead of stretching it (and the page) to fit every tile */
+.home-recent .panel { min-width: 0; }
 .home-recent .panel-head:has(+ .rc-empty) .carousel-nav { display: none; }
 .rc-row { display: flex; gap: 1rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .25rem; }
 .rc-row::-webkit-scrollbar { display: none; }
@@ -890,6 +891,11 @@ a.rc-sub:hover { color: var(--green); }
 .rc-play:hover { transform: scale(1.08); }
 .rc-empty { margin: 0; padding: .25rem 0 .5rem; color: var(--muted); }
 @media (hover: none) { .rc-play { opacity: 1; transform: none; } }          /* no hover on a touch screen: always show the button */
+@media (max-width: 560px) {                                                  /* phone: a swipeable row, smaller tiles, the next tile peeking in */
+  .rc-row { gap: .7rem; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .rc { flex-basis: 132px; width: 132px; padding: .5rem; scroll-snap-align: start; }
+  .rc-play { width: 34px; height: 34px; right: .4rem; bottom: .4rem; }
+}
 
 .trk-main { min-width: 0; }
 .trk-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
