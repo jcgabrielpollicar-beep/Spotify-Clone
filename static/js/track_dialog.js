@@ -99,7 +99,7 @@
     request.upload.addEventListener('progress', function (e) {
       if (!file || !e.lengthComputable) return;
       var percent = Math.min(100, Math.round(e.loaded / e.total * 100));
-      if (percent >= 100) progress(100, 'Upload done, saving…', 'waiting');
+      if (percent >= 100) { progress(100, 'Upload done, saving…', 'waiting'); if (save) save.textContent = 'Saving…'; }
       else progress(percent, label + ' ' + percent + '%  (' + megabytes(e.loaded) + ' of ' + megabytes(e.total) + ' MB)');
     });
     request.addEventListener('load', function () {
