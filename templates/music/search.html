@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="list-card is-detail">
+  <div class="detail-head">
+    <h1>Search</h1>
+    {% if not query %}
+      <p class="muted">Type something in the search box to find tracks, artists and albums.</p>
+    {% elif not tracks and not artists and not albums %}
+      <p class="muted">No results for "{{ query }}".</p>
+    {% else %}
+      <p class="muted">Results for "{{ query }}"</p>
+    {% endif %}
+  </div>
+
+  {% if tracks or artists or albums %}
+  <div class="detail-scroll">
+    {% if artists %}
+      <h2>Artists</h2>
+      {% include "music/_cards.html" with items=artists kind="artist" %}
+    {% endif %}
+
+    {% if albums %}
+      <h2>Albums</h2>
+      {% include "music/_cards.html" with items=albums kind="album" %}
+    {% endif %}
+
+    {% if tracks %}
+      <h2>Tracks</h2>
+      {% include "music/_tracks.html" with show_album=True %}
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Artists{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="list-card">
+  <h1>Artists</h1>
+  <div class="actions"><a class="btn" href="{% url 'artist_create' %}">New artist</a></div>
+  {% if object_list %}
+    <div class="list-scroll">
+      {% include "music/_cards.html" with items=object_list kind="artist" %}
+    </div>
+  {% else %}
+    <p class="muted">No artists yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

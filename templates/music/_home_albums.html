@@ -1,0 +1,6 @@
+{# Inside the Albums carousel on the home page: the selected artist's albums, or a hint. #}
+{% if selected_artist %}
+  {% include "music/_cards.html" with items=albums kind="album" layout="row" add_url=album_add_url add_label="add album" selectable=True selected_id=selected_album_id %}
+{% else %}
+  <p class="empty-hint">Select an artist or add one first</p>
+{% endif %}

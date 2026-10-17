@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-center{% endblock %}
+{% block content %}
+<div class="editor" id="album-editor" data-image="{% if form.instance.cover %}{{ form.instance.cover.url }}{% endif %}">
+
+  <form class="editor-card editor-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <h1>{{ title }}</h1>
+    {{ form.non_field_errors }}
+
+    <div class="field">
+      <label for="{{ form.title.id_for_label }}">Title</label>
+      {{ form.title.errors }}
+      {{ form.title }}
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="{{ form.artist.id_for_label }}">Artist</label>
+        {{ form.artist.errors }}
+        {{ form.artist }}
+      </div>
+
+      <div class="field">
+        <label for="{{ form.release_date.id_for_label }}">Release date</label>
+        {{ form.release_date.errors }}
+        {{ form.release_date }}
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="{{ form.cover.id_for_label }}">Cover</label>
+      {{ form.cover.errors }}
+      {{ form.cover }}
+    </div>
+
+    <div class="editor-actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn secondary" type="button" id="preview-toggle" aria-expanded="false" aria-controls="album-preview">Preview</button>
+      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{% url 'home' %}{% endif %}">Cancel</a>
+    </div>
+  </form>
+
+  <aside class="editor-card editor-preview" id="album-preview" aria-live="polite">
+    <div class="preview-label">Preview</div>
+    <div class="pv-hero">
+      <img id="pv-image" alt="" hidden>
+      <div id="pv-placeholder" class="placeholder">&#9835;</div>
+      <div>
+        <div class="muted">Album</div>
+        <h2 id="pv-name" class="pv-name">Album title</h2>
+        <div id="pv-meta" class="pv-meta"></div>
+      </div>
+    </div>
+    <h3 class="pv-about">Tracklist</h3>
+    <p class="pv-bio is-empty">Tracks are added from the album page once it's saved.</p>
+  </aside>
+
+</div>
+
+<script>
+  // Live preview: nothing is sent to the server until you press Save.
+  (function () {
+    var editor = document.getElementById('album-editor');
+    var toggle = document.getElementById('preview-toggle');
+    var titleIn = document.getElementById('id_title');
+    var artistIn = document.getElementById('id_artist');
+    var dateIn = document.getElementById('id_release_date');
+    var coverIn = document.getElementById('id_cover');
+    var clearIn = document.getElementById('cover-clear_id');   // only on the edit form, when a cover exists
+    var pvName = document.getElementById('pv-name');
+    var pvMeta = document.getElementById('pv-meta');
+    var pvImage = document.getElementById('pv-image');
+    var pvPlaceholder = document.getElementById('pv-placeholder');
+    if (!editor || !toggle || !titleIn || !artistIn || !dateIn || !coverIn) return;
+
+    var savedImage = editor.dataset.image || '';
+    var objectUrl = null;
+
+    function showImage(src) {
+      if (src) {
+        pvImage.src = src;
+        pvImage.hidden = false;
+        pvPlaceholder.hidden = true;
+      } else {
+        pvImage.removeAttribute('src');
+        pvImage.hidden = true;
+        pvPlaceholder.hidden = false;
+      }
+    }
+
+    function renderText() {
+      var title = titleIn.value.trim();
+      pvName.textContent = title || 'Album title';
+      pvName.classList.toggle('is-empty', !title);
+
+      var parts = [];
+      if (artistIn.value) parts.push(artistIn.options[artistIn.selectedIndex].text);
+      if (dateIn.value) {
+        var d = new Date(dateIn.value + 'T00:00:00');
+        if (!isNaN(d)) parts.push(d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+      }
+      pvMeta.textContent = parts.join(' · ');
+    }
+
+    function renderImage() {
+      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+      var file = coverIn.files && coverIn.files[0];
+      if (file && file.type.indexOf('image/') === 0) {
+        objectUrl = URL.createObjectURL(file);
+        showImage(objectUrl);
+      } else if (clearIn && clearIn.checked) {
+        showImage('');
+      } else {
+        showImage(savedImage);
+      }
+    }
+
+    titleIn.addEventListener('input', renderText);
+    artistIn.addEventListener('change', renderText);
+    dateIn.addEventListener('input', renderText);
+    dateIn.addEventListener('change', renderText);
+    coverIn.addEventListener('change', renderImage);
+    if (clearIn) clearIn.addEventListener('change', renderImage);
+
+    toggle.addEventListener('click', function () {
+      var open = editor.classList.toggle('has-preview');
+      toggle.textContent = open ? 'Hide preview' : 'Preview';
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) { renderText(); renderImage(); }
+    });
+  })();
+</script>
+{% endblock %}

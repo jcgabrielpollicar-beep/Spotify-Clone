@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Confirm delete{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Delete "{{ object }}"?</h1>
+  <p>This cannot be undone.</p>
+  {% if warning %}<p class="muted">{{ warning }}</p>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <div class="actions">
+      <button class="btn danger" type="submit">Yes, delete</button>
+      <a class="btn secondary" href="javascript:history.back()">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

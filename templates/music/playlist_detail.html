@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist.name }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block body_style %}{{ playlist.theme_style }}{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="list-card is-detail">
+  <div class="detail-head">
+    <div class="hero">
+      {% if playlist.cover_url %}<img src="{{ playlist.cover_url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+      <div>
+        <div class="muted">Playlist</div>
+        <h1>{{ playlist.name }}</h1>
+        {% if playlist.description %}<p class="detail-desc">{{ playlist.description|linebreaksbr }}</p>{% endif %}
+        <div>{{ tracks|length }} track{{ tracks|length|pluralize }}</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="btn secondary" href="{% url 'playlist_update' playlist.pk %}">Edit playlist</a>
+      <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
+    </div>
+  </div>
+
+  <div class="detail-scroll">
+    <h2>Tracklist</h2>
+    {% if tracks %}
+      {% include "music/_tracks.html" with show_album=True %}
+    {% else %}
+      <p class="muted">This playlist is empty. Use "+ Add" next to any track on an album page.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

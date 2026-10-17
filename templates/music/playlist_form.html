@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-center{% endblock %}
+{% block content %}
+<div class="editor">
+
+  <form class="editor-card editor-form" method="post">
+    {% csrf_token %}
+    <h1>{{ title }}</h1>
+    {{ form.non_field_errors }}
+
+    <div class="field">
+      <label for="{{ form.name.id_for_label }}">Name</label>
+      {{ form.name.errors }}
+      {{ form.name }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.description.id_for_label }}">Description</label>
+      {{ form.description.errors }}
+      {{ form.description }}
+    </div>
+
+    <div class="editor-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{% url 'playlist_list' %}{% endif %}">Cancel</a>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

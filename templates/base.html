@@ -1,0 +1,150 @@
+{% load static assets %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Spotify Clone{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Pacifico&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% asset 'css/style.css' %}">
+</head>
+<body class="{% block body_class %}{% endblock %}" style="{% block body_style %}{% endblock %}">
+  <header class="topbar">
+    <div class="topbar-left">
+      {% if user.is_authenticated %}
+        {# Back follows your trail of real pages (not add / edit / delete screens); static/js/nav.js sets its target. Home is always the menu. #}
+        <div class="nav-buttons">
+          <a class="nav-btn" id="nav-back" href="{% url 'home' %}" aria-label="Back" title="Back">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 8 12l7.5 7.5-1.8 1.8L4.4 12l9.3-9.3z"/></svg>
+          </a>
+          <a class="nav-btn" id="nav-home" href="{% url 'home' %}" aria-label="Home" title="Home">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"/></svg>
+          </a>
+        </div>
+      {% endif %}
+      <a class="brand" href="{% url 'home' %}">Spotify Clone</a>
+      {% if user.is_authenticated %}
+        <nav>
+          <a href="{% url 'artist_list' %}">Artists</a>
+          <a href="{% url 'album_list' %}">Albums</a>
+          <a href="{% url 'playlist_list' %}">Playlists</a>
+          <a href="{% url 'liked_songs' %}">Liked Songs</a>
+        </nav>
+      {% endif %}
+    </div>
+    {% if user.is_authenticated %}
+      <form class="search" action="{% url 'search' %}" method="get">
+        <input type="search" name="q" value="{{ query|default:'' }}" placeholder="Search tracks, artists, albums">
+      </form>
+      <div class="account">
+        <a class="pill" href="{% url 'profile' %}">{{ user.username }}</a>
+        <form action="{% url 'logout' %}" method="post">
+          {% csrf_token %}
+          <button class="pill" type="submit">Log out</button>
+        </form>
+      </div>
+    {% else %}
+      <nav class="account">
+        <a class="pill" href="{% url 'login' %}">Log in</a>
+        <a class="pill" href="{% url 'register' %}">Sign up</a>
+      </nav>
+    {% endif %}
+  </header>
+
+  <main>
+    <div class="page {% block page_class %}{% endblock %}">
+      {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  {% if user.is_authenticated %}
+  {# "Now playing" bar. One <audio> plays every track; static/js/player.js fills this in and keeps it across pages. #}
+  <section id="now-playing" class="np" aria-label="Now playing" hidden>
+    <div class="np-track">
+      <div class="np-cover" id="np-cover" aria-hidden="true"><span>&#9835;</span></div>
+      <div class="np-meta">
+        <a class="np-title" id="np-title" href="#"></a>
+        <a class="np-artist" id="np-artist" href="#"></a>
+        <span class="np-error" id="np-error" hidden>Couldn't play this track</span>
+      </div>
+    </div>
+
+    <div class="np-center">
+      <div class="np-controls">
+        <button type="button" class="np-btn" id="np-shuffle" aria-label="Shuffle" aria-pressed="false" title="Shuffle">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h5v5l-1.8-1.8-4.4 4.4-1.4-1.4 4.4-4.4L16 4zM3 7h3.6c.9 0 1.7.4 2.3 1.1l7 8.2c.2.4.7.7 1.2.7H18l-1.8-1.8 1.4-1.4L21 15.4V20h-4.6l1.8-1.8H15.6c-.9 0-1.7-.4-2.3-1.1l-7-8.2C6.1 8.6 5.7 8.4 5.2 8.4H3V7z"/></svg>
+        </button>
+        <button type="button" class="np-btn" id="np-prev" aria-label="Previous" title="Previous">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6V5zm3.5 7L19 5v14l-9.5-7z"/></svg>
+        </button>
+        <button type="button" class="np-play" id="np-play" aria-label="Play" title="Play">
+          <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+          <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4.5" height="16" rx="1.2"/><rect x="14" y="4" width="4.5" height="16" rx="1.2"/></svg>
+        </button>
+        <button type="button" class="np-btn" id="np-next" aria-label="Next" title="Next">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2V5zM5 5l9.5 7L5 19V5z"/></svg>
+        </button>
+        <button type="button" class="np-btn" id="np-repeat" aria-label="Repeat: off" aria-pressed="false" title="Repeat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+          <span class="np-one" aria-hidden="true">1</span>
+        </button>
+      </div>
+      <div class="np-progress">
+        <span class="np-time" id="np-cur">0:00</span>
+        <div class="np-slider" id="np-bar" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <div class="np-fill" id="np-fill"></div>
+        </div>
+        <span class="np-time" id="np-total">0:00</span>
+      </div>
+    </div>
+
+    <div class="np-right">
+      <button type="button" class="np-btn" id="np-mute" aria-label="Mute" title="Mute">
+        <svg class="ico-vol" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+        <svg class="ico-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4-2.7-2.7z"/></svg>
+      </button>
+      <div class="np-slider np-volume" id="np-vol" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80">
+        <div class="np-fill" id="np-vol-fill"></div>
+      </div>
+    </div>
+
+    <audio id="np-audio" preload="none"></audio>
+  </section>
+
+  {# Small popup used by every Delete link that has data-confirm-delete (static/js/confirm.js). #}
+  <dialog id="confirm-dialog" class="confirm" aria-labelledby="confirm-title">
+    <form method="post" id="confirm-form">
+      {% csrf_token %}
+      <h2 id="confirm-title">Delete?</h2>
+      <p class="confirm-text">This cannot be undone.</p>
+      <p class="confirm-warning muted" id="confirm-warning" hidden></p>
+      <div class="confirm-actions">
+        <button class="btn secondary" type="button" id="confirm-cancel" autofocus>Cancel</button>
+        <button class="btn danger" type="submit">Yes, delete</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="{% asset 'js/confirm.js' %}" defer></script>
+
+  {# Add / Edit track popup: fields are fetched from the server (music/_track_form_dialog.html) by static/js/track_dialog.js #}
+  <dialog id="track-dialog" class="confirm form-dialog" aria-labelledby="track-dialog-title">
+    <form id="track-form" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div id="track-dialog-body"></div>
+    </form>
+  </dialog>
+  <script src="{% asset 'js/track_dialog.js' %}" defer></script>
+  {% endif %}
+  <script src="{% asset 'js/player.js' %}" defer></script>
+  {% if user.is_authenticated %}
+  {# Must come last: it swaps <main> on link clicks / form submits so the player bar (outside <main>) keeps playing. #}
+  <script src="{% asset 'js/nav.js' %}" defer></script>
+  {% endif %}
+</body>
+</html>

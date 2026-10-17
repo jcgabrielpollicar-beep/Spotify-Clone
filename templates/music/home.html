@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block body_class %}home-page{% endblock %}
+{% block body_style %}{{ theme_style }}{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="home-grid"
+     data-albums-url="{% url 'home_artist_albums' 0 %}"
+     data-tracks-url="{% url 'home_album_tracks' 0 %}"
+     data-playlist-url="{% url 'home_playlist_tracks' 0 %}">
+
+  <section class="panel area-playlists">
+    <div class="panel-head">
+      <h2><a href="{% url 'playlist_list' %}">Playlists</a></h2>
+      <a class="panel-link" href="{% url 'playlist_create' %}">+ New</a>
+    </div>
+    <div class="panel-body library">
+      {# one row per playlist, like a library list: cover, name, "Playlist · N songs". Click shows its tracks, double-click opens it. #}
+      {% for playlist in playlists %}
+        <a class="lib-row{% if selected_playlist.pk == playlist.pk %} is-selected{% endif %}" href="{{ playlist.get_absolute_url }}"
+           data-kind="playlist" data-id="{{ playlist.pk }}" data-name="{{ playlist.name }}"
+           title="{{ playlist.name }} (click to show its tracks, double-click to open)">
+          <span class="lib-cover">{% with cover=playlist.cover_url %}{% if cover %}<img src="{{ cover }}" alt="">{% else %}&#9835;{% endif %}{% endwith %}</span>
+          <span class="lib-text">
+            <span class="lib-title">{{ playlist.name }}</span>
+            <span class="lib-sub">Playlist &middot; {{ playlist.track_count }} song{{ playlist.track_count|pluralize }}</span>
+          </span>
+        </a>
+      {% empty %}
+        <p class="muted">No playlists yet. <a href="{% url 'playlist_create' %}">Create one</a>.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel area-albums">
+    <div class="panel-head">
+      <h2>
+        <a href="{% url 'album_list' %}">Albums</a>
+        <span class="panel-sub" id="albums-sub">{% if selected_artist %}{{ selected_artist.name }}{% endif %}</span>
+      </h2>
+      <div class="carousel-nav" data-target="album-row">
+        <button type="button" data-scroll="prev" aria-label="Scroll albums left">&#10094;</button>
+        <button type="button" data-scroll="next" aria-label="Scroll albums right">&#10095;</button>
+      </div>
+    </div>
+    <div class="panel-body carousel" id="album-row">
+      {% include "music/_home_albums.html" %}
+    </div>
+  </section>
+
+  <section class="panel area-artists">
+    <div class="panel-head">
+      <h2><a href="{% url 'artist_list' %}">Artists</a></h2>
+      <div class="carousel-nav" data-target="artist-row">
+        <button type="button" data-scroll="prev" aria-label="Scroll artists left">&#10094;</button>
+        <button type="button" data-scroll="next" aria-label="Scroll artists right">&#10095;</button>
+      </div>
+    </div>
+    <div class="panel-body carousel" id="artist-row">
+      {% url 'artist_create' as artist_create_url %}
+      {% include "music/_cards.html" with items=artists kind="artist" layout="row" add_url=artist_create_url add_label="add artist" selectable=True selected_id=selected_artist.pk %}
+    </div>
+  </section>
+
+  <section class="panel area-tracks">
+    <div class="panel-head">
+      <h2>
+        Tracks
+        <span class="panel-sub" id="tracks-sub">{% if selected_playlist %}{{ selected_playlist.name }}{% elif selected_album %}{{ selected_album.title }}{% endif %}</span>
+      </h2>
+    </div>
+    <div class="panel-body" id="track-list">
+      {% include "music/_home_tracks.html" %}
+    </div>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var grid = document.querySelector('.home-grid');
+    if (!grid) return;
+
+    // ---- arrows: each .carousel-nav scrolls the row named in its data-target
+    var navUpdaters = {};
+    document.querySelectorAll('.carousel-nav').forEach(function (nav) {
+      var row = document.getElementById(nav.dataset.target);
+      var prev = nav.querySelector('[data-scroll="prev"]');
+      var next = nav.querySelector('[data-scroll="next"]');
+      if (!row || !prev || !next) return;
+
+      function update() {
+        prev.disabled = row.scrollLeft <= 0;
+        next.disabled = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1;
+      }
+      prev.addEventListener('click', function () { row.scrollBy({ left: -row.clientWidth * 0.8, behavior: 'smooth' }); });
+      next.addEventListener('click', function () { row.scrollBy({ left: row.clientWidth * 0.8, behavior: 'smooth' }); });
+      row.addEventListener('scroll', update);
+      window.addEventListener('resize', update);
+      navUpdaters[nav.dataset.target] = update;
+      update();
+    });
+
+    // ---- one click selects an artist / album, a double click opens its page
+    var albumRow = document.getElementById('album-row');
+    var trackList = document.getElementById('track-list');
+    var albumsSub = document.getElementById('albums-sub');
+    var tracksSub = document.getElementById('tracks-sub');
+    var latest = 0;  // ignore slow responses from an earlier click
+
+    // open a page without reloading (nav.js), so the music keeps playing; plain load if nav.js isn't there
+    function go(url) {
+      if (window.Nav) window.Nav.go(url); else window.location.href = url;
+    }
+
+    function touch() {
+      return window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    }
+
+    function cardOf(event) {
+      var card = event.target.closest('[data-kind]');       // an artist / album card or a playlist row
+      return card && grid.contains(card) ? card : null;
+    }
+
+    function unmark(kind) {
+      grid.querySelectorAll('[data-kind="' + kind + '"].is-selected')
+        .forEach(function (c) { c.classList.remove('is-selected'); });
+    }
+
+    function mark(card) {
+      var kind = card.dataset.kind;
+      unmark(kind);
+      // the Tracks panel shows one thing at a time: a playlist replaces the album, an artist or album replaces the playlist
+      if (kind === 'playlist') unmark('album'); else unmark('playlist');
+      card.classList.add('is-selected');
+    }
+
+    function load(card) {
+      var kind = card.dataset.kind;
+      var template = kind === 'artist' ? grid.dataset.albumsUrl : kind === 'playlist' ? grid.dataset.playlistUrl : grid.dataset.tracksUrl;
+      var url = template.replace('/0/', '/' + card.dataset.id + '/');
+      var ticket = ++latest;
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (data) {
+          if (ticket !== latest) return;
+          // the page and panels take on the colour of what you picked (the browser fades between the tints)
+          if (data.theme !== undefined) document.body.setAttribute('style', data.theme);
+          if (data.albums !== undefined) {
+            albumRow.innerHTML = data.albums;
+            albumRow.scrollLeft = 0;
+            albumsSub.textContent = card.dataset.name;
+            if (navUpdaters['album-row']) navUpdaters['album-row']();
+          }
+          if (data.tracks !== undefined) {
+            trackList.innerHTML = data.tracks;
+            trackList.scrollTop = 0;
+            tracksSub.textContent = card.dataset.kind === 'artist' ? '' : card.dataset.name;
+          }
+        })
+        .catch(function () { go(card.href); });  // fall back to opening it
+    }
+
+    grid.addEventListener('click', function (e) {
+      var card = cardOf(e);
+      if (!card) return;
+      // keyboard activation (Enter) and ctrl/shift/middle clicks keep the normal "open" behaviour
+      if (e.detail === 0 || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      if (card.classList.contains('is-selected')) {          // already showing: don't rebuild the lists (it would stop a playing track)
+        if (touch()) go(card.href);                          // a touch screen has no double-click: tap a selected card again to open it
+        return;
+      }
+      mark(card);
+      load(card);
+    });
+
+    grid.addEventListener('dblclick', function (e) {
+      var card = cardOf(e);
+      if (card && !touch()) go(card.href);
+    });
+  })();
+</script>
+{% endblock %}

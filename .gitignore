@@ -1,0 +1,24 @@
+# Python / virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# editor / tool folders
+.idea/
+.claude/
+
+# secrets and local data: never push these
+gabriel_login.txt
+secret_key.txt
+.env
+db.sqlite3
+db_*.sqlite3
+
+# uploaded files (covers, photos, and the full copyrighted songs) and generated files
+media/
+staticfiles/
+
+# upload bundles for PythonAnywhere (big, and they contain the database and the songs)
+deploy/*.zip
+
+*.log

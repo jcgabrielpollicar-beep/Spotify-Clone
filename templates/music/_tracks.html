@@ -1,0 +1,69 @@
+{% comment %}
+  Expects: tracks, liked_ids, my_playlists. Optional: manage (edit/delete links), playlist (remove button), show_album,
+  compact (home page panel: just play, title, time and a heart).
+  The play button hands the track (data-* below) to the "Now playing" bar in base.html; static/js/player.js
+  keeps the row highlighted while it plays. The rows of one .track-list form the queue.
+{% endcomment %}
+{% if tracks %}
+<div class="track-list">
+  {% for track in tracks %}
+  <div class="trk{% if compact %} trk-compact{% endif %}" data-id="{{ track.pk }}" data-title="{{ track.title }}"
+       data-artist="{{ track.album.artist }}" data-artist-url="{{ track.album.artist.get_absolute_url }}"
+       data-album="{{ track.album.title }}" data-album-url="{{ track.album.get_absolute_url }}"
+       {% if track.album.cover %}data-cover="{{ track.album.cover.url }}"{% endif %}
+       {% if track.playable_url %}data-src="{{ track.playable_url }}" data-seconds="{{ track.duration_seconds }}"{% endif %}>
+    <button class="trk-play" type="button"
+            {% if track.playable_url %}aria-label="Play {{ track.title }}" aria-pressed="false"{% else %}disabled aria-label="No audio file for {{ track.title }}" title="No audio file uploaded yet"{% endif %}>
+      <span class="trk-no">{% if manage %}{{ track.track_number }}{% else %}{{ forloop.counter }}{% endif %}</span>
+      <svg class="ico ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+      <svg class="ico ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4.5" height="16" rx="1.2"/><rect x="14" y="4" width="4.5" height="16" rx="1.2"/></svg>
+    </button>
+
+    <div class="trk-main">
+      <div class="trk-title">{{ track.title }}</div>
+      <div class="trk-sub">
+        {{ track.album.artist }}{% if show_album %} &middot; <a href="{{ track.album.get_absolute_url }}">{{ track.album.title }}</a>{% endif %}{% if track.is_preview_only %} &middot; <span class="trk-tag" title="Official 30-second preview, streamed from the iTunes service">30s preview</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="trk-time"><span class="trk-cur">0:00</span><span class="trk-sep"> / </span><span class="trk-total">{{ track.duration_display }}</span></div>
+
+    <div class="trk-actions">
+      <form action="{% url 'track_like' track.pk %}" method="post" data-like>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{% if compact %}{% url 'home' %}{% else %}{{ request.get_full_path }}{% endif %}">
+        {% if track.pk in liked_ids %}
+          <button class="like liked" type="submit" title="Remove from Liked Songs" aria-label="Unlike">&#9829;</button>
+        {% else %}
+          <button class="like" type="submit" title="Add to Liked Songs" aria-label="Like">&#9825;</button>
+        {% endif %}
+      </form>
+
+      {% if my_playlists and not compact and not playlist %}  {# not inside a playlist: its songs are already in one #}
+      <form action="{% url 'playlist_add_track' track.pk %}" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <select class="trk-pl" name="playlist" aria-label="Add {{ track.title }} to a playlist">
+          <option value="" selected disabled hidden>+ Playlist</option>
+          {% for p in my_playlists %}<option value="{{ p.pk }}">{{ p.name }}</option>{% endfor %}
+        </select>
+        <noscript><button class="trk-link" type="submit">Add</button></noscript>
+      </form>
+      {% endif %}
+
+      {% if playlist %}
+      <form action="{% url 'playlist_remove_track' playlist.pk track.pk %}" method="post">
+        {% csrf_token %}
+        <button class="trk-link trk-danger" type="submit">Remove</button>
+      </form>
+      {% endif %}
+
+      {% if manage %}
+        <a class="trk-link" href="{% url 'track_update' track.pk %}" data-track-form>Edit</a>
+        <a class="trk-link trk-danger" href="{% url 'track_delete' track.pk %}" data-confirm-delete data-name="{{ track.title }}">Delete</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

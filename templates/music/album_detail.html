@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ album.title }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block body_style %}{{ album.theme_style }}{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="list-card is-detail">
+  <div class="detail-head">
+    <div class="hero">
+      {% if album.cover %}<img src="{{ album.cover.url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+      <div>
+        <div class="muted">Album</div>
+        <h1>{{ album.title }}</h1>
+        <div><a href="{{ album.artist.get_absolute_url }}">{{ album.artist }}</a> &middot; {{ album.release_date }}</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="{% url 'track_create' album.pk %}" data-track-form>Add track</a>
+      <a class="btn secondary" href="{% url 'album_update' album.pk %}">Edit album</a>
+      <a class="btn secondary" href="{% url 'album_delete' album.pk %}" data-confirm-delete data-name="{{ album.title }}" data-warning="All tracks on this album will be deleted too.">Delete album</a>
+    </div>
+  </div>
+
+  <div class="detail-scroll">
+    <h2>Tracklist</h2>
+    {% if tracks %}
+      {% include "music/_tracks.html" with manage=True %}
+    {% else %}
+      <p class="muted">No tracks yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

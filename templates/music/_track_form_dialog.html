@@ -1,0 +1,38 @@
+{% comment %}
+  The inside of the Add / Edit track popup. Fetched by static/js/track_dialog.js and dropped into #track-dialog-body;
+  the <form>, the CSRF token and the <dialog> itself live in base.html.
+{% endcomment %}
+<h2 id="track-dialog-title">{{ title }}</h2>
+<p class="dialog-sub muted">on {{ album.title }}</p>
+{{ form.non_field_errors }}
+
+<div class="field">
+  <label for="{{ form.title.id_for_label }}">Title</label>
+  {{ form.title.errors }}
+  {{ form.title }}
+</div>
+
+<div class="field-row">
+  <div class="field">
+    <label for="{{ form.track_number.id_for_label }}">Track number</label>
+    {{ form.track_number.errors }}
+    {{ form.track_number }}
+  </div>
+  <div class="field">
+    <label for="{{ form.duration.id_for_label }}">Duration</label>
+    {{ form.duration.errors }}
+    {{ form.duration }}
+    <small class="helptext">{{ form.duration.help_text }}</small>
+  </div>
+</div>
+
+<div class="field">
+  <label for="{{ form.audio_file.id_for_label }}">Audio file <span class="muted">(optional)</span></label>
+  {{ form.audio_file.errors }}
+  {{ form.audio_file }}
+</div>
+
+<div class="confirm-actions">
+  <button class="btn secondary" type="button" data-dialog-close>Cancel</button>
+  <button class="btn" type="submit" id="track-save">Save</button>
+</div>

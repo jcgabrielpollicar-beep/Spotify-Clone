@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Liked Songs{% endblock %}
+{% block content %}
+<h1>Liked Songs</h1>
+{% if tracks %}
+  {% include "music/_tracks.html" with show_album=True %}
+{% else %}
+  <p class="muted">You haven't liked any tracks yet. Click the heart next to a track to add it here.</p>
+{% endif %}
+{% endblock %}

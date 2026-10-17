@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<h1>{{ user.username }}</h1>
+<div class="profile">
+  <dl>
+    <dt>Member since</dt><dd>{{ user.date_joined|date:"F j, Y" }}</dd>
+    <dt>Playlists</dt><dd><a href="{% url 'playlist_list' %}">{{ playlist_count }}</a></dd>
+    <dt>Liked songs</dt><dd><a href="{% url 'liked_songs' %}">{{ like_count }}</a></dd>
+  </dl>
+</div>
+{% endblock %}

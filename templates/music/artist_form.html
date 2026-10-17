@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-center{% endblock %}
+{% block content %}
+<div class="editor" id="artist-editor" data-image="{% if form.instance.image %}{{ form.instance.image.url }}{% endif %}">
+
+  <form class="editor-card editor-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <h1>{{ title }}</h1>
+    {{ form.non_field_errors }}
+
+    <div class="field">
+      <label for="{{ form.name.id_for_label }}">Name</label>
+      {{ form.name.errors }}
+      {{ form.name }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.bio.id_for_label }}">Bio</label>
+      {{ form.bio.errors }}
+      {{ form.bio }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.image.id_for_label }}">Image</label>
+      {{ form.image.errors }}
+      {{ form.image }}
+    </div>
+
+    <div class="editor-actions">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn secondary" type="button" id="preview-toggle" aria-expanded="false" aria-controls="artist-preview">Preview</button>
+      <a class="btn secondary" href="{% if form.instance.pk %}{{ form.instance.get_absolute_url }}{% else %}{% url 'artist_list' %}{% endif %}">Cancel</a>
+    </div>
+  </form>
+
+  <aside class="editor-card editor-preview" id="artist-preview" aria-live="polite">
+    <div class="preview-label">Preview</div>
+    <div class="pv-hero">
+      <img id="pv-image" alt="" hidden>
+      <div id="pv-placeholder" class="placeholder">&#9835;</div>
+      <div>
+        <div class="muted">Artist</div>
+        <h2 id="pv-name" class="pv-name">Artist name</h2>
+      </div>
+    </div>
+    <h3 class="pv-about">About</h3>
+    <p id="pv-bio" class="pv-bio"></p>
+  </aside>
+
+</div>
+
+<script>
+  // Live preview: nothing is sent to the server until you press Save.
+  (function () {
+    var editor = document.getElementById('artist-editor');
+    var toggle = document.getElementById('preview-toggle');
+    var nameIn = document.getElementById('id_name');
+    var bioIn = document.getElementById('id_bio');
+    var imageIn = document.getElementById('id_image');
+    var clearIn = document.getElementById('image-clear_id');   // only on the edit form, when an image exists
+    var pvName = document.getElementById('pv-name');
+    var pvBio = document.getElementById('pv-bio');
+    var pvImage = document.getElementById('pv-image');
+    var pvPlaceholder = document.getElementById('pv-placeholder');
+    if (!editor || !toggle || !nameIn || !bioIn || !imageIn) return;
+
+    var savedImage = editor.dataset.image || '';
+    var objectUrl = null;
+
+    function showImage(src) {
+      if (src) {
+        pvImage.src = src;
+        pvImage.hidden = false;
+        pvPlaceholder.hidden = true;
+      } else {
+        pvImage.removeAttribute('src');
+        pvImage.hidden = true;
+        pvPlaceholder.hidden = false;
+      }
+    }
+
+    function renderText() {
+      var name = nameIn.value.trim();
+      var bio = bioIn.value.trim();
+      pvName.textContent = name || 'Artist name';
+      pvName.classList.toggle('is-empty', !name);
+      pvBio.textContent = bio || 'No bio yet.';
+      pvBio.classList.toggle('is-empty', !bio);
+    }
+
+    function renderImage() {
+      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+      var file = imageIn.files && imageIn.files[0];
+      if (file && file.type.indexOf('image/') === 0) {
+        objectUrl = URL.createObjectURL(file);
+        showImage(objectUrl);
+      } else if (clearIn && clearIn.checked) {
+        showImage('');
+      } else {
+        showImage(savedImage);
+      }
+    }
+
+    nameIn.addEventListener('input', renderText);
+    bioIn.addEventListener('input', renderText);
+    imageIn.addEventListener('change', renderImage);
+    if (clearIn) clearIn.addEventListener('change', renderImage);
+
+    toggle.addEventListener('click', function () {
+      var open = editor.classList.toggle('has-preview');
+      toggle.textContent = open ? 'Hide preview' : 'Preview';
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) { renderText(); renderImage(); }
+    });
+  })();
+</script>
+{% endblock %}

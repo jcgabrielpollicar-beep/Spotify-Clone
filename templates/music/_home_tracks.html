@@ -1,0 +1,17 @@
+{# Inside the Tracks panel on the home page: the selected playlist's or album's tracks (playable), or a hint. #}
+{% if selected_playlist %}
+  {% if tracks %}
+    {% include "music/_tracks.html" with compact=True show_album=True %}
+  {% else %}
+    <p class="muted">This playlist is empty. Use "+ Playlist" next to any track on an album page.</p>
+  {% endif %}
+{% elif selected_album %}
+  <a class="add-track-link" href="{% url 'track_create' selected_album.pk %}" data-track-form>+ Add track</a>
+  {% if tracks %}
+    {% include "music/_tracks.html" with compact=True %}
+  {% else %}
+    <p class="muted">No tracks on this album yet.</p>
+  {% endif %}
+{% else %}
+  <p class="empty-hint">Select an album or a playlist to see its tracks</p>
+{% endif %}

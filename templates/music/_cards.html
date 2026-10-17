@@ -1,0 +1,32 @@
+{% comment %}
+  Grid of artist cards (kind="artist") or album cards (kind="album").
+  Optional: layout="row" for one scrolling row; add_url + add_label for a leading "+" tile;
+  selectable=True for the home page (click selects, double-click opens), selected_id marks the picked card.
+{% endcomment %}
+<div class="grid {% if layout == 'row' %}grid-row{% endif %}">
+  {% if add_url %}
+    <a class="card add-tile" href="{{ add_url }}">
+      <span class="plus">+</span>
+      <span class="add-label">{{ add_label }}</span>
+    </a>
+  {% endif %}
+  {% if kind == "artist" %}
+    {% for artist in items %}
+      <a class="card{% if selected_id == artist.pk %} is-selected{% endif %}" href="{{ artist.get_absolute_url }}"
+         {% if selectable %}data-kind="artist" data-id="{{ artist.pk }}" data-name="{{ artist.name }}" title="{{ artist.name }} (click to select, double-click to open)"{% else %}title="{{ artist.name }}"{% endif %}>
+        {% if artist.image %}<img src="{{ artist.image.url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+        <div class="title">{{ artist.name }}</div>
+        <div class="sub">Artist</div>
+      </a>
+    {% endfor %}
+  {% else %}
+    {% for album in items %}
+      <a class="card{% if selected_id == album.pk %} is-selected{% endif %}" href="{{ album.get_absolute_url }}"
+         {% if selectable %}data-kind="album" data-id="{{ album.pk }}" data-name="{{ album.title }}" title="{{ album.title }} (click to show its tracks, double-click to open)"{% else %}title="{{ album.title }} - {{ album.artist }}"{% endif %}>
+        {% if album.cover %}<img src="{{ album.cover.url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+        <div class="title">{{ album.title }}</div>
+        <div class="sub">{{ album.release_date.year }} &middot; {{ album.artist }}</div>
+      </a>
+    {% endfor %}
+  {% endif %}
+</div>
