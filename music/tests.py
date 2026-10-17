@@ -2,6 +2,7 @@ import datetime
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -611,6 +612,34 @@ class RecentRowsTests(BaseTestCase):
         self.login()
         albums = list(self.client.get(reverse('home')).context['recent_albums'])
         self.assertEqual(albums[0], newer)
+
+
+class DeleteNoticeTests(BaseTestCase):
+    """Deleting something leaves a message, which toast.js shows as a popup bubble on the next page."""
+
+    def deleted_message(self, url):
+        self.login()
+        response = self.client.post(url, follow=True)
+        return [str(m) for m in response.context['messages']]
+
+    def test_each_kind_says_what_was_deleted(self):
+        self.assertEqual(self.deleted_message(reverse('track_delete', args=[self.track.pk])), ['Deleted track “One More Time”.'])
+        self.assertEqual(self.deleted_message(reverse('album_delete', args=[self.album.pk])), ['Deleted album “Discovery”.'])
+        self.assertEqual(self.deleted_message(reverse('playlist_delete', args=[self.playlist.pk])), ['Deleted playlist “Favourites”.'])
+        self.assertEqual(self.deleted_message(reverse('artist_delete', args=[self.artist.pk])), ['Deleted artist “Daft Punk”.'])
+
+    def test_the_notice_reaches_the_page_as_a_message_list_the_toast_script_reads(self):
+        self.login()
+        html = self.client.post(reverse('album_delete', args=[self.album.pk]), follow=True).content.decode()
+        self.assertIn('<ul class="messages">', html)
+        self.assertIn('Deleted album', html)
+
+    def test_nothing_is_announced_when_the_delete_is_refused(self):
+        outsider_url = reverse('playlist_delete', args=[self.playlist.pk])
+        self.login('bob')                                   # not the owner: the playlist stays, no "Deleted" message
+        response = self.client.post(outsider_url)
+        self.assertTrue(Playlist.objects.filter(pk=self.playlist.pk).exists())
+        self.assertEqual([str(m) for m in get_messages(response.wsgi_request)], [])
 
 
 class TopStatsTests(BaseTestCase):

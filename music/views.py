@@ -78,6 +78,14 @@ class CancelLinkMixin:
 class ConfirmDeletePage(LoginRequiredMixin):
     template_name = 'music/confirm_delete.html'
 
+    def form_valid(self, form):
+        """After the delete, a popup bubble (static/js/toast.js) says what was removed."""
+        obj = self.object
+        name = getattr(obj, 'title', None) or getattr(obj, 'name', None) or str(obj)
+        response = super().form_valid(form)
+        messages.success(self.request, f'Deleted {obj._meta.verbose_name} “{name}”.')
+        return response
+
 
 # ---------------------------------------------------------------- home
 
