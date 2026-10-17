@@ -457,6 +457,61 @@ class HomeThemeTests(BaseTestCase):
         self.assertEqual(theme.split('--artist-panel:')[1][:7], theme.split('--album-panel:')[1][:7])
 
 
+class SearchSuggestTests(BaseTestCase):
+    """The search box suggests only artists, albums and songs that already exist."""
+
+    def setUp(self):
+        self.url = reverse('search_suggest')
+        Artist.objects.create(name='Discovery Channel Band')
+        Album.objects.filter(pk=self.album.pk).update(cover='covers/discovery.jpg')
+
+    def suggest(self, q):
+        self.login()
+        return self.client.get(self.url, {'q': q}).json()['results']
+
+    def test_requires_login(self):
+        response = self.client.get(self.url, {'q': 'disc'})
+        self.assertEqual(response.status_code, 302)
+
+    def test_finds_artists_albums_and_songs_that_exist(self):
+        results = self.suggest('disc')
+        kinds = {(r['type'], r['title']) for r in results}
+        self.assertIn(('album', 'Discovery'), kinds)
+        self.assertIn(('artist', 'Discovery Channel Band'), kinds)
+        song = {r['title'] for r in self.suggest('one more')}
+        self.assertEqual(song, {'One More Time'})
+
+    def test_each_suggestion_links_to_its_page(self):
+        by_type = {r['type']: r for r in self.suggest('discovery')}
+        self.assertEqual(by_type['album']['url'], self.album.get_absolute_url())
+        self.assertTrue(by_type['album']['image'].endswith('covers/discovery.jpg'))
+        track = {r['type']: r for r in self.suggest('one more')}['track']
+        self.assertEqual(track['url'], self.album.get_absolute_url())      # a song opens its album
+        self.assertIn('Daft Punk', track['sub'])
+
+    def test_nothing_added_means_nothing_suggested(self):
+        self.assertEqual(self.suggest('zzzz-not-here'), [])
+        self.assertEqual(self.suggest('   '), [])
+        self.assertEqual(self.suggest(''), [])
+
+    def test_matches_that_start_with_the_text_come_first(self):
+        Album.objects.create(title='The Discoverers', artist=self.artist, release_date=datetime.date(2005, 1, 1))
+        albums = [r['title'] for r in self.suggest('disco') if r['type'] == 'album']
+        self.assertEqual(albums, ['Discovery', 'The Discoverers'])
+
+    def test_result_count_is_limited(self):
+        for n in range(10):
+            Artist.objects.create(name=f'Disco Artist {n}')
+        artists = [r for r in self.suggest('disco') if r['type'] == 'artist']
+        self.assertEqual(len(artists), 3)
+
+    def test_search_box_is_wired_up_on_pages(self):
+        self.login()
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn(f'data-suggest-url="{self.url}"', html)
+        self.assertIn('js/suggest.js', html)
+
+
 class MediaRangeTests(TestCase):
     """Uploaded songs are served with HTTP Range support so the seek bar can jump to any point of a long song."""
 

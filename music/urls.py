@@ -8,6 +8,7 @@ urlpatterns = [
     path('home/album/<int:pk>/tracks/', views.home_album_tracks, name='home_album_tracks'),
     path('home/playlist/<int:pk>/tracks/', views.home_playlist_tracks, name='home_playlist_tracks'),
     path('search/', views.Search.as_view(), name='search'),
+    path('search/suggest/', views.search_suggest, name='search_suggest'),
 
     path('artists/', views.ArtistList.as_view(), name='artist_list'),
     path('artists/new/', views.ArtistCreate.as_view(), name='artist_create'),

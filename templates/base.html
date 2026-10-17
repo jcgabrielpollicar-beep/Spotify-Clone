@@ -34,8 +34,10 @@
       {% endif %}
     </div>
     {% if user.is_authenticated %}
-      <form class="search" action="{% url 'search' %}" method="get">
-        <input type="search" name="q" value="{{ query|default:'' }}" placeholder="Search tracks, artists, albums">
+      <form class="search" action="{% url 'search' %}" method="get" data-suggest-url="{% url 'search_suggest' %}">
+        {# static/js/suggest.js shows matching artists, albums and songs under this box while you type #}
+        <input type="search" name="q" value="{{ query|default:'' }}" placeholder="Search tracks, artists, albums"
+               autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest-box">
       </form>
       <div class="account">
         <a class="pill" href="{% url 'profile' %}">{{ user.username }}</a>
@@ -143,6 +145,7 @@
   {% endif %}
   <script src="{% asset 'js/player.js' %}" defer></script>
   {% if user.is_authenticated %}
+  <script src="{% asset 'js/suggest.js' %}" defer></script>
   {# Must come last: it swaps <main> on link clicks / form submits so the player bar (outside <main>) keeps playing. #}
   <script src="{% asset 'js/nav.js' %}" defer></script>
   {% endif %}

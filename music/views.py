@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Max
+from django.db.models import Case, Count, IntegerField, Max, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -438,6 +438,34 @@ class LikedSongs(LoginRequiredMixin, TrackListContextMixin, ListView):
 
 
 # ---------------------------------------------------------------- search
+
+def _best_first(queryset, field, query):
+    """Matches that start with what was typed come before matches that only contain it."""
+    return queryset.annotate(
+        starts=Case(When(**{f'{field}__istartswith': query}, then=0), default=1, output_field=IntegerField()),
+    ).order_by('starts', field)
+
+
+@login_required
+def search_suggest(request):
+    """Suggestions for the search box while typing: only artists, albums and songs that already exist."""
+    query = request.GET.get('q', '').strip()[:100]
+    results = []
+    if query:
+        for artist in _best_first(Artist.objects.filter(name__icontains=query), 'name', query)[:3]:
+            results.append({'type': 'artist', 'title': artist.name, 'sub': 'Artist', 'url': artist.get_absolute_url(),
+                            'image': artist.image.url if artist.image else ''})
+        albums = Album.objects.filter(title__icontains=query).select_related('artist')
+        for album in _best_first(albums, 'title', query)[:3]:
+            results.append({'type': 'album', 'title': album.title, 'sub': f'Album · {album.artist.name}',
+                            'url': album.get_absolute_url(), 'image': album.cover.url if album.cover else ''})
+        tracks = Track.objects.filter(title__icontains=query).select_related('album__artist')
+        for track in _best_first(tracks, 'title', query)[:4]:
+            results.append({'type': 'track', 'title': track.title, 'sub': f'Song · {track.album.artist.name}',
+                            'url': track.album.get_absolute_url(),
+                            'image': track.album.cover.url if track.album.cover else ''})
+    return JsonResponse({'query': query, 'results': results})
+
 
 class Search(LoginRequiredMixin, TrackListContextMixin, ListView):
     template_name = 'music/search.html'
