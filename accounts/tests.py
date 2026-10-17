@@ -1,4 +1,4 @@
-"""Requirement: Authentication & User Accounts (registration, login / logout, pages only for logged-in users, profile)."""
+﻿"""Requirement: Authentication & User Accounts (registration, login / logout, pages only for logged-in users, profile)."""
 import re
 
 from django.contrib.auth import get_user_model
@@ -219,3 +219,48 @@ class ProfilePageTests(TestCase):
         self.client.logout()
         self.client.login(username='bob', password='pw-bob-123')
         self.assertIn('<h1>bob</h1>', self.client.get(reverse('profile')).content.decode())
+
+
+class TestAccountCommandTests(TestCase):
+    """`manage.py create_test_account`: the shared login for people who are only trying the site out."""
+
+    def run_command(self, *args):
+        from io import StringIO
+
+        from django.core.management import call_command
+        out, err = StringIO(), StringIO()
+        call_command('create_test_account', *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def test_creates_an_account_that_can_log_in_and_use_the_site(self):
+        self.run_command()
+        client = Client()
+        self.assertTrue(client.login(username='admin', password='admin123'))
+        self.assertEqual(client.get(reverse('home')).status_code, 200)
+
+    def test_it_is_an_ordinary_account_not_staff(self):
+        self.run_command()
+        user = get_user_model().objects.get(username='admin')
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
+    def test_running_it_again_resets_the_password_without_a_second_account(self):
+        self.run_command()
+        user = get_user_model().objects.get(username='admin')
+        user.set_password('changed-by-someone')
+        user.save()
+        self.run_command()
+        self.assertEqual(get_user_model().objects.filter(username='admin').count(), 1)
+        self.assertTrue(Client().login(username='admin', password='admin123'))
+
+    def test_a_real_staff_account_called_admin_is_never_touched(self):
+        get_user_model().objects.create_superuser('admin', password='my-real-password-1')
+        _, err = self.run_command()
+        self.assertIn('left alone', err)
+        self.assertTrue(Client().login(username='admin', password='my-real-password-1'))
+        self.assertFalse(Client().login(username='admin', password='admin123'))
+
+    def test_delete_removes_it(self):
+        self.run_command()
+        self.run_command('--delete')
+        self.assertFalse(get_user_model().objects.filter(username='admin').exists())
