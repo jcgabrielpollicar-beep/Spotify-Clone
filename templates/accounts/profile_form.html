@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Edit profile{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block page_class %}page-center{% endblock %}
+{% block content %}
+<div class="editor">
+
+  <form class="editor-card editor-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <h1>Edit profile</h1>
+    {{ form.non_field_errors }}
+
+    <div class="avatar-edit">
+      <div class="avatar avatar-small" id="avatar-preview">
+        {% if profile.avatar %}<img src="{{ profile.avatar.url }}" alt="">{% else %}<span>{{ profile.initial }}</span>{% endif %}
+      </div>
+      <div class="field">
+        <label for="{{ form.avatar.id_for_label }}">{{ form.avatar.label }}</label>
+        {{ form.avatar.errors }}
+        {{ form.avatar }}
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="{{ form.display_name.id_for_label }}">{{ form.display_name.label }}</label>
+      {{ form.display_name.errors }}
+      {{ form.display_name }}
+      <span class="helptext">{{ form.display_name.help_text }}</span>
+    </div>
+
+    <div class="field">
+      <label for="{{ form.bio.id_for_label }}">Bio</label>
+      {{ form.bio.errors }}
+      {{ form.bio }}
+    </div>
+
+    <div class="editor-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn secondary" href="{% url 'profile' %}">Cancel</a>
+    </div>
+  </form>
+
+</div>
+
+<script>
+  // shows the chosen photo straight away; nothing is uploaded until Save
+  (function () {
+    var input = document.getElementById('{{ form.avatar.id_for_label }}');
+    var box = document.getElementById('avatar-preview');
+    if (!input || !box) return;
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      if (!file || file.type.indexOf('image/') !== 0) return;
+      var img = box.querySelector('img');
+      if (!img) { box.textContent = ''; img = document.createElement('img'); img.alt = ''; box.appendChild(img); }
+      img.src = URL.createObjectURL(file);
+    });
+  })();
+</script>
+{% endblock %}

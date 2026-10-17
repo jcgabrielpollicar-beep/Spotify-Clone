@@ -60,6 +60,46 @@
 
   function current() { return queue[index] || null; }
 
+  // ====================================================================== listening history
+  // A song counts as "played" (for the profile's top artists / songs) once it has really been listened to for
+  // about 10 seconds, or half of it when it is shorter. Jumping around with the seek bar doesn't add up.
+  var listened = 0;                    // seconds actually heard since this song started
+  var lastPos = null;                  // where the song was at the previous tick
+  var counted = false;                 // already reported for this listen
+
+  function resetListening() { listened = 0; lastPos = null; counted = false; }
+
+  function csrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+    var field = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    return field ? field.value : '';
+  }
+
+  function recordPlay(id) {
+    try {
+      fetch('/plays/record/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrfToken(), 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'track=' + encodeURIComponent(id)
+      }).catch(function () { /* statistics are optional: never disturb the music */ });
+    } catch (e) { /* same */ }
+  }
+
+  function countListening() {
+    var t = current();
+    if (!t || counted || audio.paused) { lastPos = null; return; }
+    var pos = audio.currentTime || 0;
+    if (lastPos !== null) {
+      var step = pos - lastPos;
+      if (step > 0 && step < 1.5) listened += step;                 // a seek jumps further than a normal tick
+    }
+    lastPos = pos;
+    var needed = Math.min(10, (t.seconds || 10) * 0.5);
+    if (listened >= needed) { counted = true; recordPlay(t.id); }
+  }
+
   function trackFromRow(row) {
     var d = row.dataset;
     return {
@@ -100,6 +140,7 @@
   function load(i, autoplay, startAt) {
     index = i;
     var t = current();
+    resetListening();
     pendingSeek = startAt || 0;
     audio.preload = 'auto';
     audio.src = t.src;
@@ -146,7 +187,7 @@
 
   function next(auto) {
     if (!queue.length) return;
-    if (auto && repeat === 'one') { audio.currentTime = 0; audio.play(); return; }
+    if (auto && repeat === 'one') { resetListening(); audio.currentTime = 0; audio.play(); return; }
     var n;
     if (shuffle && queue.length > 1) {
       n = randomOther();
@@ -167,7 +208,7 @@
 
   function previous() {
     if (!queue.length) return;
-    if (audio.currentTime > 3 || (!history.length && index === 0)) { audio.currentTime = 0; return; }   // like Spotify: restart first
+    if (audio.currentTime > 3 || (!history.length && index === 0)) { resetListening(); audio.currentTime = 0; return; }   // like Spotify: restart first
     var p = history.length ? history.pop() : (index > 0 ? index - 1 : queue.length - 1);
     load(p, true, 0);
   }
@@ -280,7 +321,7 @@
   audio.addEventListener('playing', function () { $('np-error').hidden = true; render(); });
   audio.addEventListener('pause', function () { render(); save(true); });
   audio.addEventListener('ended', function () { next(true); });
-  audio.addEventListener('timeupdate', function () { render(); save(false); });
+  audio.addEventListener('timeupdate', function () { countListening(); render(); save(false); });
   audio.addEventListener('durationchange', render);
   audio.addEventListener('loadedmetadata', function () {
     if (pendingSeek > 0 && isFinite(audio.duration)) { audio.currentTime = Math.min(pendingSeek, audio.duration); }

@@ -1,18 +1,23 @@
+import datetime
+
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Case, Count, IntegerField, Max, When
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
+from . import imports, spotify, wikipedia
 from .colors import panel_vars, theme_style
 from .forms import AlbumForm, ArtistForm, PlaylistForm, TrackForm
-from .models import Album, Artist, Like, Playlist, PlaylistTrack, Track
+from .models import Album, Artist, Like, Play, Playlist, PlaylistPartner, PlaylistTrack, Track, editable_playlists
 
 
 # ---------------------------------------------------------------- helpers
@@ -31,10 +36,11 @@ class TrackListContextMixin:
 
     def get_track_context(self, tracks):
         user = self.request.user
+        playlists = list(editable_playlists(user).select_related('owner'))     # your own and the ones you are a partner on
         return {
             'liked_ids': set(Like.objects.filter(user=user, track__in=tracks).values_list('track_id', flat=True)),
-            'my_playlists': list(user.playlists.all()),
-            'playlist_pairs': set(PlaylistTrack.objects.filter(playlist__owner=user, track__in=tracks)
+            'my_playlists': playlists,
+            'playlist_pairs': set(PlaylistTrack.objects.filter(playlist__in=playlists, track__in=tracks)
                                   .values_list('track_id', 'playlist_id')),
         }
 
@@ -147,9 +153,10 @@ def _tracks_context(album, user, playlist=None, liked=False):
 def home(request):
     artist, album, playlist, liked = _selection(request)
     return render(request, 'music/home.html', {
-        'playlists': request.user.playlists.annotate(track_count=Count('tracks')),
-        'other_playlists': Playlist.objects.exclude(owner=request.user).select_related('owner')
-                           .annotate(track_count=Count('tracks')),
+        # yours first (the ones you partner on are included), then everyone else's
+        'playlists': editable_playlists(request.user).select_related('owner').annotate(track_count=Count('tracks', distinct=True)),
+        'other_playlists': Playlist.objects.exclude(pk__in=editable_playlists(request.user).values('pk')).select_related('owner')
+                           .annotate(track_count=Count('tracks', distinct=True)),
         'liked_count': request.user.likes.count(),
         'artists': Artist.objects.order_by('-pk')[:30],  # newest added first
         'theme_style': _home_theme(artist, album, playlist, liked),
@@ -214,14 +221,37 @@ class ArtistDetail(LoginRequiredMixin, DetailView):
     model = Artist
 
 
+def _import_picture(request, form, instance, field_name, stem):
+    """If a picture was picked in the Spotify search box (and no file was uploaded), download and attach it."""
+    url = form.cleaned_data.get('spotify_image')
+    if not url or getattr(instance, field_name):
+        return
+    try:
+        imports.attach_picture(instance, field_name, url, stem)
+    except spotify.SpotifyError as error:
+        messages.warning(request, f'Saved, but the Spotify picture could not be added ({error}). You can upload one by editing it.')
+
+
 class ArtistCreate(FormPage, CreateView):
     model = Artist
     form_class = ArtistForm
     template_name = 'music/artist_form.html'  # centered card with a live preview
     extra_context = {'title': 'New artist'}
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if name := self.request.GET.get('name', '').strip()[:200]:
+            initial['name'] = name                       # e.g. from the album form: "add this artist first"
+        return initial
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['spotify_enabled'] = spotify.is_configured()
+        return context
+
     def form_valid(self, form):
         response = super().form_valid(form)
+        _import_picture(self.request, form, self.object, 'image', self.object.name)
         _select(self.request, artist=self.object)  # the new artist is selected on the home page
         return response
 
@@ -270,8 +300,21 @@ class AlbumCreate(FormPage, CreateView):
             initial['artist'] = artist_id
         return initial
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['spotify_enabled'] = spotify.is_configured()
+        return context
+
     def form_valid(self, form):
         response = super().form_valid(form)
+        _import_picture(self.request, form, self.object, 'cover', self.object.title)
+        album_id = form.cleaned_data.get('spotify_album_id')
+        if album_id and form.cleaned_data.get('import_tracks'):
+            try:
+                added = imports.add_album_tracks(self.object, spotify.album_details(album_id)['tracks'])
+                messages.success(self.request, f'Added {added} song{"s" if added != 1 else ""} from Spotify.')
+            except spotify.SpotifyError as error:
+                messages.warning(self.request, f'Saved, but the song list could not be added ({error}).')
         _select(self.request, album=self.object)  # selects the album and its artist
         return response
 
@@ -368,24 +411,34 @@ class TrackDelete(ConfirmDeletePage, DeleteView):
 # ---------------------------------------------------------------- playlists
 
 class OwnPlaylistsMixin(LoginRequiredMixin):
-    """Playlists can be seen by every signed-in user but changed only by their creator: for anyone else the
-    edit and delete pages are "not found"."""
+    """Only the creator may do this (delete the playlist, invite or remove partners): for anyone else the page
+    is "not found". Every signed-in user can still *see* a playlist."""
 
     def get_queryset(self):
         return Playlist.objects.filter(owner=self.request.user)
+
+
+class EditablePlaylistsMixin(LoginRequiredMixin):
+    """The creator and the partners they invited may edit a playlist; for anyone else the page is "not found"."""
+
+    def get_queryset(self):
+        return editable_playlists(self.request.user)
 
 
 class PlaylistList(LoginRequiredMixin, ListView):
     model = Playlist
 
     def get_queryset(self):
-        return Playlist.objects.select_related('owner').annotate(track_count=Count('tracks'))
+        return Playlist.objects.select_related('owner').annotate(track_count=Count('tracks', distinct=True))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        user = self.request.user
+        partner_of = set(PlaylistPartner.objects.filter(user=user).values_list('playlist_id', flat=True))
         playlists = list(context['object_list'])
-        context['mine'] = [p for p in playlists if p.owner_id == self.request.user.pk]
-        context['others'] = [p for p in playlists if p.owner_id != self.request.user.pk]
+        context['mine'] = [p for p in playlists if p.owner_id == user.pk]
+        context['shared_with_me'] = [p for p in playlists if p.pk in partner_of]          # you are a partner on these
+        context['others'] = [p for p in playlists if p.owner_id != user.pk and p.pk not in partner_of]
         return context
 
 
@@ -397,8 +450,19 @@ class PlaylistDetail(LoginRequiredMixin, TrackListContextMixin, DetailView):
         context = super().get_context_data(**kwargs)
         entries = PlaylistTrack.objects.filter(playlist=self.object).select_related('track__album__artist')
         tracks = [entry.track for entry in entries]
+        user = self.request.user
+        is_owner = self.object.owner_id == user.pk
+        partnerships = list(self.object.partnerships.select_related('user'))
+        is_partner = any(p.user_id == user.pk for p in partnerships)
         context['tracks'] = tracks
-        context['can_edit_playlist'] = self.object.owner_id == self.request.user.pk
+        context['is_owner'] = is_owner
+        context['is_partner'] = is_partner
+        context['can_edit_playlist'] = is_owner or is_partner            # edit details, add and remove songs
+        context['partnerships'] = partnerships
+        if is_owner:                                                      # suggestions for the "add a partner" box
+            taken = {self.object.owner_id, *(p.user_id for p in partnerships)}
+            context['partner_candidates'] = list(
+                get_user_model().objects.exclude(pk__in=taken).order_by('username').values_list('username', flat=True))
         context.update(self.get_track_context(tracks))
         return context
 
@@ -416,7 +480,7 @@ class PlaylistCreate(FormPage, CreateView):
         return response
 
 
-class PlaylistUpdate(OwnPlaylistsMixin, FormPage, UpdateView):
+class PlaylistUpdate(EditablePlaylistsMixin, FormPage, UpdateView):
     form_class = PlaylistForm
     template_name = 'music/playlist_form.html'
     extra_context = {'title': 'Edit playlist'}
@@ -431,7 +495,7 @@ class PlaylistDelete(OwnPlaylistsMixin, ConfirmDeletePage, DeleteView):
 @require_POST
 def playlist_add_track(request, track_pk):
     track = get_object_or_404(Track, pk=track_pk)
-    playlist = get_object_or_404(Playlist, pk=request.POST.get('playlist'), owner=request.user)
+    playlist = get_object_or_404(editable_playlists(request.user), pk=request.POST.get('playlist'))   # yours, or one you partner on
     _, created = PlaylistTrack.objects.get_or_create(playlist=playlist, track=track)
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':        # the "+ Playlist" menu adds in place
         return JsonResponse({'created': created, 'playlist': playlist.name, 'track': track.title})
@@ -445,10 +509,67 @@ def playlist_add_track(request, track_pk):
 @login_required
 @require_POST
 def playlist_remove_track(request, pk, track_pk):
-    playlist = get_object_or_404(Playlist, pk=pk, owner=request.user)
+    playlist = get_object_or_404(editable_playlists(request.user), pk=pk)
     PlaylistTrack.objects.filter(playlist=playlist, track_id=track_pk).delete()
     messages.success(request, 'Track removed from playlist.')
     return redirect(playlist)
+
+
+@login_required
+@require_POST
+def playlist_partner_add(request, pk):
+    """The creator invites another user (by username) to look after the playlist."""
+    playlist = get_object_or_404(Playlist, pk=pk, owner=request.user)
+    username = request.POST.get('username', '').strip()
+    person = get_user_model().objects.filter(username__iexact=username).first() if username else None
+    if person is None:
+        messages.error(request, f'There is no user named \u201c{username}\u201d.' if username else 'Type the username of the person to add.')
+    elif person.pk == request.user.pk:
+        messages.info(request, 'You already own this playlist.')
+    elif PlaylistPartner.objects.filter(playlist=playlist, user=person).exists():
+        messages.info(request, f'{person.username} is already a partner.')
+    else:
+        PlaylistPartner.objects.create(playlist=playlist, user=person)
+        messages.success(request, f'{person.username} is now a partner on \u201c{playlist.name}\u201d.')
+    return redirect(playlist)
+
+
+@login_required
+@require_POST
+def playlist_partner_remove(request, pk, user_pk):
+    """The creator removes a partner, or a partner leaves the playlist (removes themselves)."""
+    playlist = get_object_or_404(Playlist, pk=pk)
+    leaving = user_pk == request.user.pk
+    if playlist.owner_id != request.user.pk and not leaving:
+        raise Http404('Not found')
+    partnership = get_object_or_404(PlaylistPartner, playlist=playlist, user_id=user_pk)
+    name = partnership.user.username
+    partnership.delete()
+    if leaving:
+        messages.success(request, f'You left \u201c{playlist.name}\u201d.')
+        return redirect('playlist_list')
+    messages.success(request, f'{name} is no longer a partner.')
+    return redirect(playlist)
+
+
+# ---------------------------------------------------------------- listening history
+
+PLAY_DEDUPE_SECONDS = 20          # the same song twice within this long counts once (a page reload mid-song, a double send)
+
+
+@login_required
+@require_POST
+def record_play(request):
+    """The player calls this once a song has been listened to for a while; it feeds the profile's top lists."""
+    try:
+        track = Track.objects.get(pk=int(request.POST.get('track', '')))
+    except (ValueError, Track.DoesNotExist):
+        return JsonResponse({'recorded': False}, status=404)
+    recent = timezone.now() - datetime.timedelta(seconds=PLAY_DEDUPE_SECONDS)
+    if Play.objects.filter(user=request.user, track=track, played_at__gte=recent).exists():
+        return JsonResponse({'recorded': False})
+    Play.objects.create(user=request.user, track=track)
+    return JsonResponse({'recorded': True})
 
 
 # ---------------------------------------------------------------- liked songs
@@ -479,6 +600,64 @@ class LikedSongs(LoginRequiredMixin, TrackListContextMixin, ListView):
         context['theme_style'] = theme_style(LIKED_COLOR)
         context.update(self.get_track_context(tracks))
         return context
+
+
+# ---------------------------------------------------------------- Spotify lookups (for the New artist / New album forms)
+
+def _spotify_json(call, *args):
+    """Run a Spotify lookup and wrap the answer for the form's script: {"results": ...} or {"error": "..."}."""
+    if not spotify.is_configured():
+        return JsonResponse({'error': 'Spotify search is not set up.', 'enabled': False}, status=404)
+    try:
+        return JsonResponse({'enabled': True, **call(*args)})
+    except spotify.SpotifyError as error:
+        return JsonResponse({'error': str(error), 'enabled': True}, status=502)
+
+
+def _our_artist_id(name):
+    artist = Artist.objects.filter(name__iexact=name).first() if name else None
+    return artist.pk if artist else None
+
+
+@login_required
+def spotify_artists(request):
+    query = request.GET.get('q', '').strip()[:100]
+    if not query:
+        return JsonResponse({'enabled': spotify.is_configured(), 'results': []})
+    return _spotify_json(lambda: {'results': spotify.search_artists(query)})
+
+
+@login_required
+def spotify_albums(request):
+    query = request.GET.get('q', '').strip()[:100]
+    if not query:
+        return JsonResponse({'enabled': spotify.is_configured(), 'results': []})
+
+    def call():
+        results = spotify.search_albums(query)
+        for item in results:
+            item['artist_id'] = _our_artist_id(item['main_artist'])      # the matching artist in this catalog, if any
+        return {'results': results}
+    return _spotify_json(call)
+
+
+@login_required
+def artist_bio(request):
+    """A short bio for an artist from Wikipedia, for the "Fill in from Spotify" box (Spotify has no bios).
+    Answers {"bio": "..."} or {"bio": ""} when no suitable page exists; never an error page."""
+    found = wikipedia.artist_bio(request.GET.get('name', ''))
+    if not found:
+        return JsonResponse({'bio': ''})
+    return JsonResponse({'bio': wikipedia.with_credit(found), 'title': found['title'], 'url': found['url']})
+
+
+@login_required
+def spotify_album(request, album_id):
+    def call():
+        album = spotify.album_details(album_id)
+        album['artist_id'] = _our_artist_id(album['main_artist'])
+        return {'album': album}
+    return _spotify_json(call)
 
 
 # ---------------------------------------------------------------- search

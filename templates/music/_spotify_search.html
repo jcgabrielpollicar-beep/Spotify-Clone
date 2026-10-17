@@ -1,0 +1,19 @@
+{% comment %}
+  The "Fill in from Spotify" box at the top of the New artist / New album forms (static/js/spotify_import.js).
+  Pass kind="artist" or "album", search_url, and (albums) album_url. Shown only when Spotify keys are set up.
+{% endcomment %}
+{% if spotify_enabled and not form.instance.pk %}
+<div class="sp-search" data-kind="{{ kind }}" data-search-url="{{ search_url }}"{% if album_url %} data-album-url="{{ album_url }}"{% endif %}
+     data-add-artist-url="{% url 'artist_create' %}"{% if bio_url %} data-bio-url="{{ bio_url }}"{% endif %}>
+  <label class="sp-label" for="sp-q-{{ kind }}">Fill in from Spotify</label>
+  <input type="search" id="sp-q-{{ kind }}" class="sp-input" autocomplete="off"
+         placeholder="Search Spotify for {% if kind == 'artist' %}an artist{% else %}an album{% endif %}&hellip;">
+  <div class="sp-results" role="listbox" hidden></div>
+  <p class="sp-status" role="status" hidden></p>
+  <div class="sp-chosen" hidden>
+    <img class="sp-chosen-pic" alt="">
+    <span class="sp-chosen-text"></span>
+    <button type="button" class="sp-clear" aria-label="Forget the Spotify picture">&times;</button>
+  </div>
+</div>
+{% endif %}

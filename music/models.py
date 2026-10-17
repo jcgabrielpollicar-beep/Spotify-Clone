@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 
 from .colors import dominant_color, theme_style
 
@@ -140,6 +141,7 @@ class Playlist(models.Model):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     tracks = models.ManyToManyField(Track, through='PlaylistTrack', related_name='playlists')
+    partners = models.ManyToManyField(settings.AUTH_USER_MODEL, through='PlaylistPartner', related_name='partner_playlists', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -150,6 +152,13 @@ class Playlist(models.Model):
 
     def get_absolute_url(self):
         return reverse('playlist_detail', args=[self.pk])
+
+    def is_partner(self, user):
+        return user.is_authenticated and PlaylistPartner.objects.filter(playlist=self, user=user).exists()
+
+    def can_edit(self, user):
+        """The creator and the partners the creator added may change the playlist and its songs."""
+        return user.is_authenticated and (self.owner_id == user.pk or self.is_partner(user))
 
     def _cover_album(self):
         """The album of the first track (in the order they were added) that has a cover, or None."""
@@ -183,6 +192,47 @@ class PlaylistTrack(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['playlist', 'track'], name='unique_track_per_playlist'),
         ]
+
+
+class PlaylistPartner(models.Model):
+    """A user the creator invited to look after a playlist with them (edit it, add and remove songs).
+
+    Partners cannot delete the playlist or invite other people: that stays with the creator.
+    """
+    playlist = models.ForeignKey(Playlist, on_delete=models.CASCADE, related_name='partnerships')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='partnerships')
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['added_at']
+        constraints = [
+            models.UniqueConstraint(fields=['playlist', 'user'], name='unique_partner_per_playlist'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} partners on {self.playlist}'
+
+
+def editable_playlists(user):
+    """Playlists this user may change: their own and the ones they were invited to as a partner."""
+    return Playlist.objects.filter(models.Q(owner=user) | models.Q(partnerships__user=user)).distinct()
+
+
+class Play(models.Model):
+    """One listen: written by the player after a song has really been listened to for a while (static/js/player.js).
+
+    The profile page counts these per month to show someone's top artists and top songs.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='plays')
+    track = models.ForeignKey(Track, on_delete=models.CASCADE, related_name='plays')
+    played_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-played_at']
+        indexes = [models.Index(fields=['user', 'played_at'])]
+
+    def __str__(self):
+        return f'{self.user} played {self.track}'
 
 
 class Like(models.Model):

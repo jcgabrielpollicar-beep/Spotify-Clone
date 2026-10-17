@@ -20,6 +20,20 @@
     <p class="muted">You haven't created any playlists yet.</p>
   {% endif %}
 
+  {% if shared_with_me %}
+    <h2>Shared with you</h2>
+    <p class="muted">You are a partner on these, so you can edit them and add or remove songs.</p>
+    <div class="grid">
+      {% for playlist in shared_with_me %}
+        <a class="card" href="{{ playlist.get_absolute_url }}" title="{{ playlist.name }} by {{ playlist.owner.username }}">
+          {% if playlist.cover_url %}<img src="{{ playlist.cover_url }}" alt="">{% else %}<div class="placeholder">&#9835;</div>{% endif %}
+          <div class="title">{{ playlist.name }}</div>
+          <div class="sub">by {{ playlist.owner.username }} &middot; partner</div>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {% if others %}
     <h2>Shared by others</h2>
     <p class="muted">Everyone can listen to these. Only the person who made a playlist can change it.</p>

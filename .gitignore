@@ -22,3 +22,6 @@ staticfiles/
 deploy/*.zip
 
 *.log
+
+# Spotify API keys (never push these)
+spotify_keys.txt

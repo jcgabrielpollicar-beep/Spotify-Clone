@@ -53,7 +53,7 @@
           {% for p in my_playlists %}
             {% playlist_has track p as inside %}
             <button type="submit" name="playlist" value="{{ p.pk }}" class="pl-item{% if inside %} is-in{% endif %}"{% if inside %} disabled title="Already in {{ p.name }}"{% endif %}>
-              <span class="pl-name">{{ p.name }}</span>{% if inside %}<span class="pl-check" aria-hidden="true">&#10003;</span>{% endif %}
+              <span class="pl-name">{{ p.name }}{% if p.owner_id != user.pk %} <span class="pl-by">{{ p.owner.username }}'s</span>{% endif %}</span>{% if inside %}<span class="pl-check" aria-hidden="true">&#10003;</span>{% endif %}
             </button>
           {% endfor %}
           <a class="pl-new" href="{% url 'playlist_create' %}">+ New playlist</a>

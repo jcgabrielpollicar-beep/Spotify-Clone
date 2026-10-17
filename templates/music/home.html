@@ -34,7 +34,7 @@
           <span class="lib-cover">{% with cover=playlist.cover_url %}{% if cover %}<img src="{{ cover }}" alt="">{% else %}&#9835;{% endif %}{% endwith %}</span>
           <span class="lib-text">
             <span class="lib-title">{{ playlist.name }}</span>
-            <span class="lib-sub">Playlist &middot; {{ playlist.track_count }} song{{ playlist.track_count|pluralize }}</span>
+            <span class="lib-sub">Playlist &middot; {% if playlist.owner_id != user.pk %}partner on {{ playlist.owner.username }}'s &middot; {% endif %}{{ playlist.track_count }} song{{ playlist.track_count|pluralize }}</span>
           </span>
         </a>
       {% empty %}

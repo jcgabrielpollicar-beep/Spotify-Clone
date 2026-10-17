@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -137,3 +138,26 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Spotify search for the "New artist" / "New album" forms (optional; see music/spotify.py).
+# The keys come from the environment or from an untracked file named spotify_keys.txt next to manage.py:
+#     client_id=...
+#     client_secret=...
+# Without keys the forms simply don't show the Spotify search box.
+def _spotify_keys():
+    keys = {'client_id': os.environ.get('SPOTIFY_CLIENT_ID', ''), 'client_secret': os.environ.get('SPOTIFY_CLIENT_SECRET', '')}
+    key_file = BASE_DIR / 'spotify_keys.txt'
+    if key_file.exists():
+        for line in key_file.read_text(encoding='utf-8').splitlines():
+            name, _, value = line.partition('=')
+            if name.strip().lower() in keys and value.strip() and not keys[name.strip().lower()]:
+                keys[name.strip().lower()] = value.strip().strip('"\'')
+    return keys
+
+
+SPOTIFY_CLIENT_ID = _spotify_keys()['client_id']
+SPOTIFY_CLIENT_SECRET = _spotify_keys()['client_secret']
+SPOTIFY_API_URL = os.environ.get('SPOTIFY_API_URL', 'https://api.spotify.com/v1')
+SPOTIFY_TOKEN_URL = os.environ.get('SPOTIFY_TOKEN_URL', 'https://accounts.spotify.com/api/token')
+SPOTIFY_IMAGE_HOSTS = tuple(os.environ.get('SPOTIFY_IMAGE_HOSTS', 'scdn.co').split(','))   # photos are only downloaded from these

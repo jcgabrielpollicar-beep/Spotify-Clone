@@ -2,10 +2,14 @@ import datetime
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from .models import Album, Artist, Like, Playlist, PlaylistTrack, Track
+from accounts.models import Profile
+
+from .models import Album, Artist, Like, Play, Playlist, PlaylistPartner, PlaylistTrack, Track
+from .stats import month_start, top_artists, top_songs
 from .views import LIKED_COLOR
 
 User = get_user_model()
@@ -512,6 +516,610 @@ class SearchSuggestTests(BaseTestCase):
         html = self.client.get(reverse('home')).content.decode()
         self.assertIn(f'data-suggest-url="{self.url}"', html)
         self.assertIn('js/suggest.js', html)
+
+
+class PlayRecordingTests(BaseTestCase):
+    """The player reports a song once it has really been listened to; those plays feed the profile."""
+
+    def setUp(self):
+        self.url = reverse('record_play')
+
+    def test_requires_login_and_post(self):
+        self.assertEqual(self.client.post(self.url, {'track': self.track.pk}).status_code, 302)
+        self.login()
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertEqual(Play.objects.count(), 0)
+
+    def test_a_play_is_recorded_for_the_signed_in_user(self):
+        self.login()
+        response = self.client.post(self.url, {'track': self.track.pk})
+        self.assertEqual(response.json(), {'recorded': True})
+        play = Play.objects.get()
+        self.assertEqual((play.user, play.track), (self.alice, self.track))
+
+    def test_the_same_song_twice_in_a_few_seconds_counts_once(self):
+        self.login()
+        self.client.post(self.url, {'track': self.track.pk})
+        again = self.client.post(self.url, {'track': self.track.pk}).json()
+        self.assertEqual(again, {'recorded': False})
+        self.assertEqual(Play.objects.count(), 1)
+
+    def test_a_later_listen_counts_again(self):
+        self.login()
+        Play.objects.create(user=self.alice, track=self.track, played_at=timezone.now() - datetime.timedelta(minutes=5))
+        self.assertTrue(self.client.post(self.url, {'track': self.track.pk}).json()['recorded'])
+        self.assertEqual(Play.objects.count(), 2)
+
+    def test_unknown_or_bad_track_ids_are_not_found(self):
+        self.login()
+        for bad in ('99999', 'abc', ''):
+            self.assertEqual(self.client.post(self.url, {'track': bad}).status_code, 404, bad)
+        self.assertEqual(Play.objects.count(), 0)
+
+    def test_player_script_reports_plays(self):
+        js = (settings.BASE_DIR / 'static' / 'js' / 'player.js').read_text(encoding='utf-8')
+        self.assertIn('/plays/record/', js)
+        self.assertIn('countListening', js)
+
+
+class TopStatsTests(BaseTestCase):
+    """Top artists / songs of the current month, per user."""
+
+    def setUp(self):
+        self.other_artist = Artist.objects.create(name='Justice')
+        self.other_album = Album.objects.create(title='Cross', artist=self.other_artist, release_date=datetime.date(2007, 6, 11))
+        self.t2 = Track.objects.create(album=self.other_album, title='D.A.N.C.E.', track_number=1, duration=datetime.timedelta(minutes=4))
+
+    def play(self, track, times=1, user=None, days_ago=0):
+        for _ in range(times):
+            Play.objects.create(user=user or self.alice, track=track,
+                                played_at=timezone.now() - datetime.timedelta(days=days_ago))
+
+    def test_most_played_first_with_counts(self):
+        self.play(self.track, 3)
+        self.play(self.t2, 5)
+        songs = top_songs(self.alice)
+        self.assertEqual([(t.title, n) for t, n in songs], [('D.A.N.C.E.', 5), ('One More Time', 3)])
+        artists = top_artists(self.alice)
+        self.assertEqual([(a.name, n) for a, n in artists], [('Justice', 5), ('Daft Punk', 3)])
+
+    def test_artist_plays_add_up_across_their_songs(self):
+        second = Track.objects.create(album=self.album, title='Aerodynamic', track_number=2, duration=datetime.timedelta(minutes=3))
+        self.play(self.track, 2)
+        self.play(second, 2)
+        self.play(self.t2, 3)
+        artists = top_artists(self.alice)
+        self.assertEqual([(a.name, n) for a, n in artists], [('Daft Punk', 4), ('Justice', 3)])
+
+    def test_only_this_month_counts(self):
+        self.play(self.track, 4, days_ago=45)                   # last month or earlier
+        self.play(self.t2, 1)
+        self.assertEqual([t.title for t, _ in top_songs(self.alice)], ['D.A.N.C.E.'])
+
+    def test_each_person_sees_only_their_own_listening(self):
+        self.play(self.track, 2, user=self.bob)
+        self.assertEqual(top_songs(self.alice), [])
+        self.assertEqual(top_artists(self.alice), [])
+
+    def test_limits_are_5_artists_and_30_songs(self):
+        for n in range(8):
+            artist = Artist.objects.create(name=f'Band {n}')
+            album = Album.objects.create(title=f'LP {n}', artist=artist, release_date=datetime.date(2020, 1, 1))
+            track = Track.objects.create(album=album, title=f'Song {n}', track_number=1, duration=datetime.timedelta(minutes=3))
+            self.play(track, n + 1)
+        self.assertEqual(len(top_artists(self.alice)), 5)
+        for n in range(35):
+            track = Track.objects.create(album=self.album, title=f'Extra {n}', track_number=10 + n, duration=datetime.timedelta(minutes=3))
+            self.play(track)
+        self.assertEqual(len(top_songs(self.alice)), 30)
+
+    def test_ties_go_to_the_most_recent(self):
+        self.play(self.track, 2, days_ago=3)
+        self.play(self.t2, 2, days_ago=0)
+        self.assertEqual([t.title for t, _ in top_songs(self.alice)], ['D.A.N.C.E.', 'One More Time'])
+
+    def test_month_starts_at_midnight_on_the_first(self):
+        start = month_start(timezone.make_aware(datetime.datetime(2026, 10, 17, 15, 30)))
+        self.assertEqual((start.day, start.hour, start.minute), (1, 0, 0))
+
+
+class ProfilePageTests(BaseTestCase):
+    """Profile: photo, name, bio, top 5 artists and top 30 songs of the month."""
+
+    def setUp(self):
+        self.login()
+        self.url = reverse('profile')
+
+    def test_shows_username_until_a_name_is_set(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('<h1>alice</h1>', html)
+        self.assertIn('class="avatar"', html)
+        self.assertIn('<span>A</span>', html)                        # initial in place of a photo
+
+    def test_name_and_bio_can_be_edited(self):
+        response = self.client.post(reverse('profile_edit'), {'display_name': 'Alice A.', 'bio': 'I like synths.\nA lot.'})
+        self.assertRedirects(response, self.url)
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('<h1>Alice A.</h1>', html)
+        self.assertIn('I like synths.<br>A lot.', html)
+        self.assertEqual(Profile.objects.get(user=self.alice).bio, 'I like synths.\nA lot.')
+
+    def test_edit_form_is_a_card_and_prefilled(self):
+        Profile.objects.update_or_create(user=self.alice, defaults={'display_name': 'Ally'})
+        html = self.client.get(reverse('profile_edit')).content.decode()
+        self.assertIn('editor-card editor-form', html)
+        self.assertIn('value="Ally"', html)
+
+    def test_other_users_profiles_are_separate(self):
+        self.client.post(reverse('profile_edit'), {'display_name': 'Alice A.', 'bio': ''})
+        self.client.logout()
+        self.login('bob')
+        self.assertIn('<h1>bob</h1>', self.client.get(self.url).content.decode())
+
+    def test_bio_is_limited_to_300_characters(self):
+        response = self.client.post(reverse('profile_edit'), {'display_name': '', 'bio': 'x' * 301})
+        self.assertEqual(response.status_code, 200)                  # form shown again with an error
+        self.assertFalse(Profile.objects.filter(user=self.alice, bio__startswith='xxx').exists())
+
+    def test_empty_top_lists_explain_themselves(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('Top artists this month', html)
+        self.assertIn('Top songs this month', html)
+        self.assertIn('Listen to some songs', html)
+
+    def test_top_lists_show_what_was_played(self):
+        for _ in range(3):
+            Play.objects.create(user=self.alice, track=self.track)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'class="top-artist"')
+        self.assertContains(response, 'Daft Punk')
+        self.assertContains(response, '3 plays')
+        self.assertContains(response, 'One More Time')               # in the playable song list
+        self.assertEqual(response.context['tracks'], [self.track])
+
+    def test_requires_login(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.client.get(reverse('profile_edit')).status_code, 302)
+
+
+def _fake_jpeg():
+    import io
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new('RGB', (40, 40), (180, 40, 40)).save(out, 'JPEG')
+    return out.getvalue()
+
+
+KEYS = {'SPOTIFY_CLIENT_ID': 'test-id', 'SPOTIFY_CLIENT_SECRET': 'test-secret'}
+
+
+class SpotifyClientTests(TestCase):
+    """music/spotify.py with Spotify's answers faked: nothing here touches the internet."""
+
+    def setUp(self):
+        from . import spotify
+        self.spotify = spotify
+        spotify._token.update(value='', expires=0.0)
+
+    def test_artist_search_picks_the_picture_closest_to_640px(self):
+        payload = {'artists': {'items': [{'id': 'a1', 'name': 'Chase Atlantic', 'genres': ['pop'], 'followers': {'total': 12},
+                                          'images': [{'url': 'https://i.scdn.co/small', 'width': 64},
+                                                     {'url': 'https://i.scdn.co/big', 'width': 640},
+                                                     {'url': 'https://i.scdn.co/huge', 'width': 1000}]}]}}
+        from unittest import mock
+        with override_settings(**KEYS), mock.patch.object(self.spotify, '_get', return_value=payload):
+            result = self.spotify.search_artists('chase')
+        self.assertEqual(result, [{'id': 'a1', 'name': 'Chase Atlantic', 'image': 'https://i.scdn.co/big',
+                                   'genres': ['pop'], 'followers': 12}])
+
+    def test_album_details_fills_in_partial_dates_and_the_song_list(self):
+        payload = {'id': 'al1', 'name': 'PHASES', 'release_date': '2019-06', 'release_date_precision': 'month',
+                   'artists': [{'name': 'Chase Atlantic'}, {'name': 'Guest'}], 'images': [],
+                   'tracks': {'items': [{'track_number': 1, 'name': 'INTRO', 'duration_ms': 122500, 'artists': [{'name': 'Chase Atlantic'}]},
+                                        {'track_number': 2, 'name': 'ANGELS', 'duration_ms': 258000, 'artists': []}]}}
+        from unittest import mock
+        with override_settings(**KEYS), mock.patch.object(self.spotify, '_get', return_value=payload):
+            album = self.spotify.album_details('al1')
+        self.assertEqual(album['date'], '2019-06-01')
+        self.assertEqual(album['main_artist'], 'Chase Atlantic')
+        self.assertEqual([(t['number'], t['title'], t['seconds']) for t in album['tracks']], [(1, 'INTRO', 122), (2, 'ANGELS', 258)])
+
+    def test_full_date_handles_year_month_and_day(self):
+        self.assertEqual(self.spotify.full_date('2021'), '2021-01-01')
+        self.assertEqual(self.spotify.full_date('2021-04'), '2021-04-01')
+        self.assertEqual(self.spotify.full_date('2021-04-23'), '2021-04-23')
+        self.assertEqual(self.spotify.full_date(''), '')
+
+    def test_the_access_token_is_reused_until_it_expires(self):
+        from unittest import mock
+        reply = b'{"access_token": "tok", "expires_in": 3600}'
+        with override_settings(**KEYS), mock.patch.object(self.spotify, '_open', return_value=reply) as opened:
+            self.assertEqual(self.spotify._access_token(), 'tok')
+            self.assertEqual(self.spotify._access_token(), 'tok')
+        self.assertEqual(opened.call_count, 1)
+
+    def test_without_keys_nothing_is_called(self):
+        with override_settings(SPOTIFY_CLIENT_ID='', SPOTIFY_CLIENT_SECRET=''):
+            self.assertFalse(self.spotify.is_configured())
+            with self.assertRaises(self.spotify.SpotifyError):
+                self.spotify._access_token()
+
+    def test_pictures_are_only_taken_from_spotifys_own_servers(self):
+        ok = self.spotify.allowed_image_url
+        self.assertTrue(ok('https://i.scdn.co/image/abc'))
+        self.assertTrue(ok('https://mosaic.scdn.co/640/x'))
+        for bad in ('http://i.scdn.co/image/abc', 'https://evil.example.com/i.jpg', 'https://scdn.co.evil.com/i.jpg',
+                    'file:///etc/passwd', 'javascript:alert(1)', '', 'not a url'):
+            self.assertFalse(ok(bad), bad)
+
+
+@override_settings(**KEYS)
+class SpotifyFormTests(BaseTestCase):
+    """The Spotify box on the New artist / New album forms and what happens on Save."""
+
+    def setUp(self):
+        from unittest import mock
+        self.mock = mock
+        self.login()
+
+    def test_endpoints_need_login(self):
+        self.client.logout()
+        for url in (reverse('spotify_artists'), reverse('spotify_albums'), reverse('spotify_album', args=['abc123'])):
+            self.assertEqual(self.client.get(url, {'q': 'x'}).status_code, 302, url)
+
+    def test_artist_search_returns_results(self):
+        fake = [{'id': 'a1', 'name': 'Chase Atlantic', 'image': 'https://i.scdn.co/x', 'genres': [], 'followers': 5}]
+        with self.mock.patch('music.spotify.search_artists', return_value=fake):
+            data = self.client.get(reverse('spotify_artists'), {'q': 'chase'}).json()
+        self.assertEqual(data['results'], fake)
+        self.assertTrue(data['enabled'])
+
+    def test_album_search_points_at_the_matching_artist_in_this_catalog(self):
+        fake = [{'id': 'al1', 'title': 'Discovery', 'artist': 'daft punk', 'main_artist': 'daft punk', 'date': '2001-03-12',
+                 'image': '', 'total_tracks': 14, 'kind': 'album'},
+                {'id': 'al2', 'title': 'Other', 'artist': 'Unknown Band', 'main_artist': 'Unknown Band', 'date': '2020',
+                 'image': '', 'total_tracks': 1, 'kind': 'single'}]
+        with self.mock.patch('music.spotify.search_albums', return_value=fake):
+            results = self.client.get(reverse('spotify_albums'), {'q': 'disc'}).json()['results']
+        self.assertEqual(results[0]['artist_id'], self.artist.pk)       # "daft punk" matches "Daft Punk" ignoring case
+        self.assertIsNone(results[1]['artist_id'])
+
+    def test_empty_query_asks_spotify_nothing(self):
+        with self.mock.patch('music.spotify.search_artists') as search:
+            self.assertEqual(self.client.get(reverse('spotify_artists'), {'q': '  '}).json()['results'], [])
+        search.assert_not_called()
+
+    def test_spotify_trouble_is_reported_not_crashed(self):
+        from . import spotify
+        with self.mock.patch('music.spotify.search_artists', side_effect=spotify.SpotifyError('Spotify answered 429')):
+            response = self.client.get(reverse('spotify_artists'), {'q': 'x'})
+        self.assertEqual(response.status_code, 502)
+        self.assertIn('429', response.json()['error'])
+
+    @override_settings(SPOTIFY_CLIENT_ID='', SPOTIFY_CLIENT_SECRET='')
+    def test_without_keys_the_box_is_hidden_and_endpoints_say_so(self):
+        for url in (reverse('artist_create'), reverse('album_create')):
+            self.assertNotContains(self.client.get(url), 'sp-search')
+        response = self.client.get(reverse('spotify_artists'), {'q': 'x'})
+        self.assertEqual((response.status_code, response.json()['enabled']), (404, False))
+
+    def test_with_keys_the_box_shows_on_new_forms_but_not_on_edit(self):
+        self.assertContains(self.client.get(reverse('artist_create')), 'Fill in from Spotify')
+        self.assertContains(self.client.get(reverse('album_create')), 'Fill in from Spotify')
+        self.assertNotContains(self.client.get(reverse('artist_update', args=[self.artist.pk])), 'sp-search')
+        self.assertNotContains(self.client.get(reverse('album_update', args=[self.album.pk])), 'sp-search')
+
+    def test_new_artist_form_can_be_prefilled_from_the_link(self):
+        self.assertContains(self.client.get(reverse('artist_create'), {'name': 'Brand New Band'}), 'value="Brand New Band"')
+
+    def test_saving_an_artist_downloads_the_picked_spotify_photo(self):
+        with self.mock.patch('music.spotify.download_image', return_value=_fake_jpeg()) as download:
+            self.client.post(reverse('artist_create'), {'name': 'Chase Atlantic', 'bio': '', 'spotify_image': 'https://i.scdn.co/image/abc'})
+        download.assert_called_once_with('https://i.scdn.co/image/abc')
+        artist = Artist.objects.get(name='Chase Atlantic')
+        self.assertTrue(artist.image.name.startswith('artists/chase-atlantic'))
+        self.assertTrue(artist.accent_color.startswith('#'))               # the page colour was worked out from it
+        artist.image.delete(save=False)
+
+    def test_an_uploaded_file_beats_the_spotify_photo(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        upload = SimpleUploadedFile('mine.jpg', _fake_jpeg(), content_type='image/jpeg')
+        with self.mock.patch('music.spotify.download_image') as download:
+            self.client.post(reverse('artist_create'), {'name': 'Own Photo', 'bio': '', 'image': upload,
+                                                        'spotify_image': 'https://i.scdn.co/image/abc'})
+        download.assert_not_called()
+        Artist.objects.get(name='Own Photo').image.delete(save=False)
+
+    def test_a_picture_from_another_site_is_refused(self):
+        response = self.client.post(reverse('artist_create'), {'name': 'Sneaky', 'bio': '', 'spotify_image': 'https://evil.example.com/x.jpg'})
+        self.assertEqual(response.status_code, 200)                         # the form is shown again with an error
+        self.assertFalse(Artist.objects.filter(name='Sneaky').exists())
+
+    def test_a_failed_picture_download_still_saves_the_artist_with_a_warning(self):
+        from . import spotify
+        with self.mock.patch('music.spotify.download_image', side_effect=spotify.SpotifyError('Could not download the picture')):
+            response = self.client.post(reverse('artist_create'), {'name': 'No Photo', 'bio': '', 'spotify_image': 'https://i.scdn.co/x'}, follow=True)
+        self.assertTrue(Artist.objects.filter(name='No Photo').exists())
+        self.assertContains(response, 'Spotify picture could not be added')
+
+    def _album_post(self, **extra):
+        data = {'title': 'PHASES', 'artist': self.artist.pk, 'release_date': '2019-06-28', 'spotify_album_id': 'AbC123xyz0987',
+                'import_tracks': 'on'}
+        data.update(extra)
+        return self.client.post(reverse('album_create'), data, follow=True)
+
+    DETAILS = {'tracks': [{'number': 1, 'title': 'INTRO', 'seconds': 122, 'artist': ''},
+                          {'number': 2, 'title': 'ANGELS', 'seconds': 258, 'artist': ''}]}
+
+    def test_saving_an_album_adds_the_song_list(self):
+        with self.mock.patch('music.spotify.album_details', return_value=self.DETAILS):
+            response = self._album_post()
+        album = Album.objects.get(title='PHASES')
+        self.assertEqual([(t.track_number, t.title, t.duration_seconds) for t in album.tracks.all().order_by('track_number')],
+                         [(1, 'INTRO', 122), (2, 'ANGELS', 258)])
+        self.assertContains(response, 'Added 2 songs from Spotify')
+
+    def test_unticking_the_box_skips_the_song_list(self):
+        with self.mock.patch('music.spotify.album_details', return_value=self.DETAILS) as details:
+            data = {'title': 'No Songs', 'artist': self.artist.pk, 'release_date': '2019-06-28', 'spotify_album_id': 'AbC123xyz0987'}
+            self.client.post(reverse('album_create'), data)                    # import_tracks left out = unticked
+        details.assert_not_called()
+        self.assertEqual(Album.objects.get(title='No Songs').tracks.count(), 0)
+
+    def test_importing_never_doubles_existing_track_numbers(self):
+        from . import imports
+        album = Album.objects.create(title='X', artist=self.artist, release_date=datetime.date(2020, 1, 1))
+        Track.objects.create(album=album, title='Mine', track_number=1, duration=datetime.timedelta(minutes=1))
+        added = imports.add_album_tracks(album, self.DETAILS['tracks'])
+        self.assertEqual(added, 1)
+        self.assertEqual(album.tracks.get(track_number=1).title, 'Mine')
+
+    def test_a_failed_song_list_still_saves_the_album_with_a_warning(self):
+        from . import spotify
+        with self.mock.patch('music.spotify.album_details', side_effect=spotify.SpotifyError('Could not reach Spotify')):
+            response = self._album_post(title='Offline')
+        self.assertTrue(Album.objects.filter(title='Offline').exists())
+        self.assertContains(response, 'song list could not be added')
+
+    def test_a_bad_album_id_is_rejected(self):
+        response = self.client.post(reverse('album_create'), {'title': 'Bad', 'artist': self.artist.pk, 'release_date': '2019-06-28',
+                                                              'spotify_album_id': '../../etc/passwd'})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Album.objects.filter(title='Bad').exists())
+
+    def test_saving_an_album_downloads_the_cover(self):
+        with self.mock.patch('music.spotify.download_image', return_value=_fake_jpeg()):
+            self.client.post(reverse('album_create'), {'title': 'Covered', 'artist': self.artist.pk, 'release_date': '2019-06-28',
+                                                       'spotify_image': 'https://i.scdn.co/image/c'})
+        album = Album.objects.get(title='Covered')
+        self.assertTrue(album.cover.name.startswith('covers/covered'))
+        album.cover.delete(save=False)
+
+
+class WikipediaBioTests(BaseTestCase):
+    """The short artist bio the "Fill in from Spotify" box takes from Wikipedia (Wikipedia's answers are faked here)."""
+
+    def setUp(self):
+        from unittest import mock
+        from django.core.cache import cache
+        from . import wikipedia
+        cache.clear()
+        self.mock, self.wiki = mock, wikipedia
+
+    @staticmethod
+    def reply(*pages, redirects=()):
+        return {'query': {'redirects': [{'from': a, 'to': b} for a, b in redirects],
+                          'pages': {str(i if 'missing' not in p else -1 - i): p for i, p in enumerate(pages, start=1)}}}
+
+    BAND = {'title': 'Chase Atlantic', 'extract': 'Chase Atlantic is an Australian alternative R&B band formed in Cairns in 2014.'}
+
+    def lookup(self, name, payload):
+        with self.mock.patch.object(self.wiki, '_get', return_value=payload):
+            return self.wiki.artist_bio(name)
+
+    def test_a_musical_page_with_the_same_title_is_used_and_credited(self):
+        found = self.lookup('Chase Atlantic', self.reply(self.BAND))
+        self.assertIn('Australian alternative R&B band', found['bio'])
+        self.assertEqual(found['url'], 'https://en.wikipedia.org/wiki/Chase_Atlantic')
+        text = self.wiki.with_credit(found)
+        self.assertTrue(text.endswith('(https://en.wikipedia.org/wiki/Chase_Atlantic), CC BY-SA 4.0.'))
+        self.assertIn('Source: Wikipedia', text)
+
+    def test_a_non_musical_page_is_skipped_for_the_singer_page(self):
+        football = {'title': 'Malcolm Todd', 'extract': 'Malcolm Todd (born 1970) is a retired English footballer.'}
+        singer = {'title': 'Malcolm Todd (singer)', 'extract': 'Malcolm Todd is an American singer and songwriter.'}
+        found = self.lookup('Malcolm Todd', self.reply(football, singer))
+        self.assertEqual(found['title'], 'Malcolm Todd (singer)')
+
+    def test_disambiguation_pages_are_never_used(self):
+        page = dict(self.BAND, pageprops={'disambiguation': ''})
+        self.assertIsNone(self.lookup('Chase Atlantic', self.reply(page)))
+
+    def test_a_page_with_a_different_name_is_rejected(self):
+        other = {'title': 'Chase Atlantis', 'extract': 'Chase Atlantis is a band.'}
+        self.assertIsNone(self.lookup('Chase Atlantic', self.reply(other)))
+
+    def test_redirects_and_accents_are_followed(self):
+        page = {'title': 'Beyoncé', 'extract': 'Beyoncé is an American singer, songwriter and businesswoman.'}
+        found = self.lookup('Beyonce', self.reply(page, redirects=[('Beyonce', 'Beyoncé')]))
+        self.assertEqual(found['title'], 'Beyoncé')
+
+    def test_missing_pages_give_no_bio(self):
+        self.assertIsNone(self.lookup('Nobody Known', self.reply({'title': 'Nobody Known', 'missing': ''})))
+
+    def test_long_intros_are_cut_at_a_sentence_end(self):
+        long = ' '.join(f'Sentence number {n} about the band and its music.' for n in range(40))
+        page = {'title': 'Chase Atlantic', 'extract': 'Chase Atlantic is a band. ' + long}
+        bio = self.lookup('Chase Atlantic', self.reply(page))['bio']
+        self.assertLessEqual(len(bio), 700)
+        self.assertTrue(bio.endswith('.'))
+
+    def test_a_network_error_gives_nothing_and_is_not_remembered(self):
+        with self.mock.patch.object(self.wiki, '_get', side_effect=OSError('offline')):
+            self.assertIsNone(self.wiki.artist_bio('Chase Atlantic'))
+        self.assertIsNotNone(self.lookup('Chase Atlantic', self.reply(self.BAND)))       # the next try works
+
+    def test_answers_are_remembered_so_wikipedia_is_not_asked_twice(self):
+        with self.mock.patch.object(self.wiki, '_get', return_value=self.reply(self.BAND)) as get:
+            self.wiki.artist_bio('Chase Atlantic')
+            self.wiki.artist_bio('chase atlantic')
+        self.assertEqual(get.call_count, 1)
+
+    def test_the_endpoint_needs_login_and_never_errors(self):
+        url = reverse('artist_bio')
+        self.assertEqual(self.client.get(url, {'name': 'x'}).status_code, 302)
+        self.login()
+        self.assertEqual(self.client.get(url, {'name': ''}).json(), {'bio': ''})
+        with self.mock.patch.object(self.wiki, '_get', side_effect=OSError('offline')):
+            self.assertEqual(self.client.get(url, {'name': 'Chase Atlantic'}).json(), {'bio': ''})
+        with self.mock.patch.object(self.wiki, '_get', return_value=self.reply(self.BAND)):
+            data = self.client.get(url, {'name': 'Chase Atlantic'}).json()
+        self.assertIn('Australian', data['bio'])
+        self.assertIn('Source: Wikipedia', data['bio'])
+
+    def test_the_new_artist_form_passes_the_bio_address_to_the_box(self):
+        self.login()
+        with override_settings(**KEYS):
+            html = self.client.get(reverse('artist_create')).content.decode()
+        self.assertIn(f'data-bio-url="{reverse("artist_bio")}"', html)
+
+
+class PlaylistPartnerTests(BaseTestCase):
+    """The creator (alice) can invite a partner (bob): he may edit the playlist and add / remove its songs, but only
+    alice can delete it or change partners."""
+
+    def setUp(self):
+        self.carol = User.objects.create_user('carol', password='pw-carol-123')
+        self.add_url = reverse('playlist_partner_add', args=[self.playlist.pk])
+        self.make_bob_partner = lambda: PlaylistPartner.objects.create(playlist=self.playlist, user=self.bob)
+
+    # ---- inviting and removing
+    def test_creator_adds_a_partner_by_username_ignoring_case(self):
+        self.login()
+        self.client.post(self.add_url, {'username': 'BOB'})
+        self.assertTrue(self.playlist.is_partner(self.bob))
+        self.assertIn(self.bob, self.playlist.partners.all())
+
+    def test_bad_names_add_nobody(self):
+        self.login()
+        for name, text in (('nobody-here', 'no user named'), ('', 'Type the username'), ('alice', 'already own')):
+            response = self.client.post(self.add_url, {'username': name}, follow=True)
+            self.assertContains(response, text)
+        self.make_bob_partner()
+        self.assertContains(self.client.post(self.add_url, {'username': 'bob'}, follow=True), 'already a partner')
+        self.assertEqual(PlaylistPartner.objects.count(), 1)
+
+    def test_only_the_creator_manages_partners(self):
+        self.make_bob_partner()
+        for who in ('bob', 'carol'):
+            self.client.logout()
+            self.login(who)
+            self.assertEqual(self.client.post(self.add_url, {'username': 'carol'}).status_code, 404, who)
+            self.assertEqual(self.client.post(reverse('playlist_partner_remove', args=[self.playlist.pk, self.bob.pk])).status_code
+                             if who == 'carol' else 302, 404 if who == 'carol' else 302)
+        self.assertFalse(self.playlist.is_partner(self.carol))
+        self.assertTrue(self.playlist.is_partner(self.bob))
+
+    def test_creator_removes_a_partner_and_access_goes_with_it(self):
+        self.make_bob_partner()
+        self.login()
+        self.client.post(reverse('playlist_partner_remove', args=[self.playlist.pk, self.bob.pk]))
+        self.assertFalse(self.playlist.is_partner(self.bob))
+        self.client.logout()
+        self.login('bob')
+        self.assertEqual(self.client.get(reverse('playlist_update', args=[self.playlist.pk])).status_code, 404)
+
+    def test_a_partner_can_leave_but_not_remove_someone_else(self):
+        self.make_bob_partner()
+        PlaylistPartner.objects.create(playlist=self.playlist, user=self.carol)
+        self.login('bob')
+        self.assertEqual(self.client.post(reverse('playlist_partner_remove', args=[self.playlist.pk, self.carol.pk])).status_code, 404)
+        response = self.client.post(reverse('playlist_partner_remove', args=[self.playlist.pk, self.bob.pk]))
+        self.assertRedirects(response, reverse('playlist_list'))
+        self.assertFalse(self.playlist.is_partner(self.bob))
+        self.assertTrue(self.playlist.is_partner(self.carol))
+
+    # ---- what a partner may do
+    def test_a_partner_can_edit_the_playlist_details(self):
+        self.make_bob_partner()
+        self.login('bob')
+        self.assertEqual(self.client.get(reverse('playlist_update', args=[self.playlist.pk])).status_code, 200)
+        self.client.post(reverse('playlist_update', args=[self.playlist.pk]), {'name': 'Renamed by Bob', 'description': 'hi'})
+        self.playlist.refresh_from_db()
+        self.assertEqual(self.playlist.name, 'Renamed by Bob')
+        self.assertEqual(self.playlist.owner, self.alice)                # still alice's
+
+    def test_a_partner_can_add_and_remove_songs(self):
+        self.make_bob_partner()
+        self.login('bob')
+        self.client.post(reverse('playlist_add_track', args=[self.track.pk]), {'playlist': self.playlist.pk})
+        self.assertEqual(PlaylistTrack.objects.filter(playlist=self.playlist).count(), 1)
+        self.client.post(reverse('playlist_remove_track', args=[self.playlist.pk, self.track.pk]))
+        self.assertEqual(PlaylistTrack.objects.filter(playlist=self.playlist).count(), 0)
+
+    def test_a_partner_cannot_delete_the_playlist(self):
+        self.make_bob_partner()
+        self.login('bob')
+        self.assertEqual(self.client.get(reverse('playlist_delete', args=[self.playlist.pk])).status_code, 404)
+        self.client.post(reverse('playlist_delete', args=[self.playlist.pk]))
+        self.assertTrue(Playlist.objects.filter(pk=self.playlist.pk).exists())
+
+    def test_someone_who_is_not_a_partner_still_cannot_change_anything(self):
+        self.make_bob_partner()
+        self.login('carol')
+        self.assertEqual(self.client.get(reverse('playlist_update', args=[self.playlist.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse('playlist_add_track', args=[self.track.pk]), {'playlist': self.playlist.pk}).status_code, 404)
+        self.assertEqual(self.client.post(reverse('playlist_remove_track', args=[self.playlist.pk, self.track.pk])).status_code, 404)
+
+    # ---- what each person sees
+    def test_the_playlist_page_shows_the_right_controls_to_each_person(self):
+        PlaylistTrack.objects.create(playlist=self.playlist, track=self.track)
+        self.make_bob_partner()
+        self.login()
+        owner = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        for shown in ('Add partner', 'Delete playlist', 'Edit playlist', 'Remove partner' if False else 'Remove bob'):
+            self.assertIn(shown, owner)
+        self.client.logout()
+        self.login('bob')
+        partner = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        self.assertIn('Edit playlist', partner)
+        self.assertIn('Remove', partner)                                    # songs can be removed
+        self.assertIn('Leave', partner)
+        for hidden in ('Delete playlist', 'Add partner', '+ Playlist'):
+            self.assertNotIn(hidden, partner)
+        self.client.logout()
+        self.login('carol')
+        stranger = self.client.get(self.playlist.get_absolute_url()).content.decode()
+        for hidden in ('Edit playlist', 'Delete playlist', 'Add partner', 'Leave'):
+            self.assertNotIn(hidden, stranger)
+
+    def test_the_partner_playlist_shows_up_where_the_partners_own_playlists_do(self):
+        self.make_bob_partner()
+        self.login('bob')
+        home = self.client.get(reverse('home')).content.decode()
+        self.assertIn("partner on alice's", home)
+        self.assertNotIn('Shared by others', home)                          # it is not listed as someone else's
+        listing = self.client.get(reverse('playlist_list'))
+        self.assertEqual([p.name for p in listing.context['shared_with_me']], ['Favourites'])
+        self.assertEqual(listing.context['others'], [])
+        self.assertContains(listing, 'Shared with you')
+
+    def test_the_plus_playlist_menu_includes_playlists_you_partner_on(self):
+        Playlist.objects.create(owner=self.bob, name='Bobs own')
+        self.make_bob_partner()
+        self.login('bob')
+        html = self.client.get(self.album.get_absolute_url()).content.decode()
+        self.assertIn('Bobs own', html)
+        self.assertIn('Favourites', html)
+        self.assertIn("alice's", html)                                       # tells whose it is
+        self.assertEqual(self.client.post(reverse('playlist_add_track', args=[self.track.pk]),
+                                          {'playlist': self.playlist.pk}, HTTP_X_REQUESTED_WITH='XMLHttpRequest').json()['created'], True)
+
+    def test_deleting_a_user_removes_their_partnerships(self):
+        self.make_bob_partner()
+        self.bob.delete()
+        self.assertEqual(PlaylistPartner.objects.count(), 0)
 
 
 class MediaRangeTests(TestCase):

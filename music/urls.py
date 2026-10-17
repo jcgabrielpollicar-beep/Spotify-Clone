@@ -11,6 +11,11 @@ urlpatterns = [
     path('search/', views.Search.as_view(), name='search'),
     path('search/suggest/', views.search_suggest, name='search_suggest'),
 
+    path('spotify/artist-bio/', views.artist_bio, name='artist_bio'),
+    path('spotify/artists/', views.spotify_artists, name='spotify_artists'),
+    path('spotify/albums/', views.spotify_albums, name='spotify_albums'),
+    path('spotify/albums/<str:album_id>/', views.spotify_album, name='spotify_album'),
+
     path('artists/', views.ArtistList.as_view(), name='artist_list'),
     path('artists/new/', views.ArtistCreate.as_view(), name='artist_create'),
     path('artists/<int:pk>/', views.ArtistDetail.as_view(), name='artist_detail'),
@@ -29,6 +34,8 @@ urlpatterns = [
     path('tracks/<int:pk>/like/', views.toggle_like, name='track_like'),
     path('tracks/<int:track_pk>/add-to-playlist/', views.playlist_add_track, name='playlist_add_track'),
 
+    path('plays/record/', views.record_play, name='record_play'),
+
     path('liked/', views.LikedSongs.as_view(), name='liked_songs'),
 
     path('playlists/', views.PlaylistList.as_view(), name='playlist_list'),
@@ -37,4 +44,6 @@ urlpatterns = [
     path('playlists/<int:pk>/edit/', views.PlaylistUpdate.as_view(), name='playlist_update'),
     path('playlists/<int:pk>/delete/', views.PlaylistDelete.as_view(), name='playlist_delete'),
     path('playlists/<int:pk>/remove/<int:track_pk>/', views.playlist_remove_track, name='playlist_remove_track'),
+    path('playlists/<int:pk>/partners/add/', views.playlist_partner_add, name='playlist_partner_add'),
+    path('playlists/<int:pk>/partners/<int:user_pk>/remove/', views.playlist_partner_remove, name='playlist_partner_remove'),
 ]

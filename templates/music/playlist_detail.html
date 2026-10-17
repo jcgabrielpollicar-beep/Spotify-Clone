@@ -12,19 +12,63 @@
         <div class="muted">Playlist</div>
         <h1>{{ playlist.name }}</h1>
         {% if playlist.description %}<p class="detail-desc">{{ playlist.description|linebreaksbr }}</p>{% endif %}
-        <div>{% if not can_edit_playlist %}by {{ playlist.owner.username }} &middot; {% endif %}{{ tracks|length }} track{{ tracks|length|pluralize }}</div>
+        <div>
+          {% if not is_owner %}by {{ playlist.owner.username }} &middot; {% endif %}
+          {% if partnerships %}with {% for p in partnerships %}{{ p.user.username }}{% if not forloop.last %}, {% endif %}{% endfor %} &middot; {% endif %}
+          {{ tracks|length }} track{{ tracks|length|pluralize }}
+        </div>
       </div>
     </div>
 
     {% if can_edit_playlist %}
     <div class="actions">
       <a class="btn secondary" href="{% url 'playlist_update' playlist.pk %}">Edit playlist</a>
-      <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
+      {% if is_owner %}
+        <a class="btn secondary" href="{% url 'playlist_delete' playlist.pk %}" data-confirm-delete data-name="{{ playlist.name }}" data-warning="The tracks themselves are not deleted.">Delete playlist</a>
+      {% endif %}
     </div>
     {% endif %}
   </div>
 
   <div class="detail-scroll">
+    {# partners: the creator invites people who can then edit the playlist and add / remove its songs #}
+    {% if is_owner or partnerships %}
+    <section class="partners" aria-label="Partners">
+      <h2>Partners</h2>
+      {% if partnerships %}
+        <ul class="partner-list">
+          {% for p in partnerships %}
+            <li class="partner-chip">
+              <span class="partner-name">{{ p.user.username }}</span>
+              {% if is_owner %}
+                <form action="{% url 'playlist_partner_remove' playlist.pk p.user_id %}" method="post">
+                  {% csrf_token %}
+                  <button class="partner-x" type="submit" title="Remove {{ p.user.username }} as a partner" aria-label="Remove {{ p.user.username }}">&times;</button>
+                </form>
+              {% elif p.user_id == user.pk %}
+                <form action="{% url 'playlist_partner_remove' playlist.pk p.user_id %}" method="post">
+                  {% csrf_token %}
+                  <button class="trk-link" type="submit">Leave</button>
+                </form>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted partner-note">No partners yet.</p>
+      {% endif %}
+      {% if is_owner %}
+        <form class="partner-add" action="{% url 'playlist_partner_add' playlist.pk %}" method="post">
+          {% csrf_token %}
+          <input type="text" name="username" list="partner-names" placeholder="Add a partner by username" autocomplete="off" required>
+          <datalist id="partner-names">{% for name in partner_candidates %}<option value="{{ name }}">{% endfor %}</datalist>
+          <button class="btn secondary" type="submit">Add partner</button>
+        </form>
+        <p class="muted partner-note">Partners can edit this playlist and add or remove its songs. Only you can delete it or change partners.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
     <h2>Tracklist</h2>
     {% if tracks %}
       {% include "music/_tracks.html" with show_album=True %}

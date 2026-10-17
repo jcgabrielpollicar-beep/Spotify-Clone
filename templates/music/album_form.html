@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load assets %}
 {% block title %}{{ title }}{% endblock %}
 {% block body_class %}bare-page{% endblock %}
 {% block page_class %}page-center{% endblock %}
@@ -9,6 +10,10 @@
     {% csrf_token %}
     <h1>{{ title }}</h1>
     {{ form.non_field_errors }}
+    {% url 'spotify_albums' as spotify_albums_url %}
+    {% url 'spotify_album' 'x' as spotify_album_url %}
+    {% include "music/_spotify_search.html" with kind="album" search_url=spotify_albums_url album_url=spotify_album_url %}
+    {{ form.spotify_image }}{{ form.spotify_album_id }}
 
     <div class="field">
       <label for="{{ form.title.id_for_label }}">Title</label>
@@ -35,6 +40,13 @@
       {{ form.cover.errors }}
       {{ form.cover }}
     </div>
+
+    {% if spotify_enabled and not form.instance.pk %}
+    <div class="field field-check">
+      <label for="{{ form.import_tracks.id_for_label }}">{{ form.import_tracks }} {{ form.import_tracks.label }}</label>
+      <span class="helptext">Only used when you picked an album from the Spotify box above.</span>
+    </div>
+    {% endif %}
 
     <div class="editor-actions">
       <button class="btn" type="submit">Save</button>
@@ -76,7 +88,7 @@
     var pvPlaceholder = document.getElementById('pv-placeholder');
     if (!editor || !toggle || !titleIn || !artistIn || !dateIn || !coverIn) return;
 
-    var savedImage = editor.dataset.image || '';
+    function savedImage() { return editor.dataset.image || ''; }     // changes when a Spotify cover is picked
     var objectUrl = null;
 
     function showImage(src) {
@@ -114,7 +126,7 @@
       } else if (clearIn && clearIn.checked) {
         showImage('');
       } else {
-        showImage(savedImage);
+        showImage(savedImage());
       }
     }
 
@@ -133,4 +145,5 @@
     });
   })();
 </script>
+<script src="{% asset 'js/spotify_import.js' %}"></script>
 {% endblock %}

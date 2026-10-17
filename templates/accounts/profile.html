@@ -1,12 +1,56 @@
 {% extends "base.html" %}
-{% block title %}Profile{% endblock %}
+{% block title %}{{ profile.name }}{% endblock %}
+{% block body_class %}bare-page{% endblock %}
+{% block body_style %}{{ theme_style }}{% endblock %}
+{% block page_class %}page-wide{% endblock %}
 {% block content %}
-<h1>{{ user.username }}</h1>
-<div class="profile">
-  <dl>
-    <dt>Member since</dt><dd>{{ user.date_joined|date:"F j, Y" }}</dd>
-    <dt>Playlists</dt><dd><a href="{% url 'playlist_list' %}">{{ playlist_count }}</a></dd>
-    <dt>Liked songs</dt><dd><a href="{% url 'liked_songs' %}">{{ like_count }}</a></dd>
-  </dl>
+<div class="list-card is-detail">
+  <div class="detail-head">
+    <div class="hero">
+      <div class="avatar">
+        {% if profile.avatar %}<img src="{{ profile.avatar.url }}" alt="">{% else %}<span>{{ profile.initial }}</span>{% endif %}
+      </div>
+      <div class="hero-text">
+        <div class="muted">Profile</div>
+        <h1>{{ profile.name }}</h1>
+        {% if profile.bio %}<p class="detail-desc">{{ profile.bio|linebreaksbr }}</p>{% endif %}
+        <div class="profile-meta">
+          <a href="{% url 'playlist_list' %}">{{ playlist_count }} playlist{{ playlist_count|pluralize }}</a>
+          &middot; <a href="{% url 'liked_songs' %}">{{ like_count }} liked song{{ like_count|pluralize }}</a>
+          &middot; <span>@{{ user.username }}</span>
+          &middot; <span>member since {{ user.date_joined|date:"F Y" }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn secondary" href="{% url 'profile_edit' %}">Edit profile</a>
+    </div>
+  </div>
+
+  <div class="detail-scroll">
+    <h2>Top artists this month</h2>
+    <p class="muted profile-note">Only visible to you &middot; {{ month|date:"F Y" }}</p>
+    {% if top_artists %}
+      <div class="top-artists">
+        {% for artist, plays in top_artists %}
+          <a class="top-artist" href="{{ artist.get_absolute_url }}" title="{{ artist.name }}">
+            <span class="ta-rank">{{ forloop.counter }}</span>
+            <span class="ta-pic">{% if artist.image %}<img src="{{ artist.image.url }}" alt="">{% else %}&#9835;{% endif %}</span>
+            <span class="ta-name">{{ artist.name }}</span>
+            <span class="ta-sub">{{ plays }} play{{ plays|pluralize }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">Nothing yet. Listen to some songs and your top artists will show up here.</p>
+    {% endif %}
+
+    <h2>Top songs this month</h2>
+    {% if tracks %}
+      {% include "music/_tracks.html" with show_album=True %}
+    {% else %}
+      <p class="muted">Nothing yet. Songs you listen to for a few seconds are counted.</p>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}
